@@ -13,6 +13,7 @@ class App : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        Settings.applyTheme(this) // dark by default
         DownloadStore.init(this)
         DownloadService.createChannels(this)
         removeOldYoutubeLogin()

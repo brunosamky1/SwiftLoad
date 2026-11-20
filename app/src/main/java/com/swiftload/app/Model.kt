@@ -142,6 +142,22 @@ object Settings {
     fun videoQuality(c: Context) = prefs(c).getInt("videoQuality", 720)
     fun setVideoQuality(c: Context, v: Int) = prefs(c).edit().putInt("videoQuality", v).apply()
 
+    /** How many downloads may run at the same time (1–5). */
+    fun maxParallel(c: Context) = prefs(c).getInt("maxParallel", 3).coerceIn(1, 5)
+    fun setMaxParallel(c: Context, v: Int) = prefs(c).edit().putInt("maxParallel", v.coerceIn(1, 5)).apply()
+
+    /** 0 = dark (default), 1 = light, 2 = follow the phone */
+    fun themeMode(c: Context) = prefs(c).getInt("theme", 0)
+    fun setThemeMode(c: Context, v: Int) = prefs(c).edit().putInt("theme", v).apply()
+
+    fun applyTheme(c: Context) = androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(
+        when (themeMode(c)) {
+            1 -> androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO
+            2 -> androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+            else -> androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES
+        }
+    )
+
     fun lastClipboard(c: Context) = prefs(c).getString("lastClip", "") ?: ""
     fun setLastClipboard(c: Context, v: String) = prefs(c).edit().putString("lastClip", v).apply()
 }

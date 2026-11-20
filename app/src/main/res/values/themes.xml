@@ -1,20 +1,50 @@
 <resources>
-    <style name="Theme.SwiftLoad" parent="Theme.Material3.Light.NoActionBar">
+    <!-- Dark by default (see App.kt); follows Settings → Theme -->
+    <style name="Theme.SwiftLoad" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="colorPrimary">@color/brand</item>
-        <item name="colorPrimaryDark">@color/brand_dark</item>
-        <item name="colorSecondary">@color/accent</item>
-        <item name="colorAccent">@color/accent</item>
+        <item name="colorOnPrimary">@color/on_brand</item>
+        <item name="colorPrimaryContainer">@color/brand</item>
+        <item name="colorOnPrimaryContainer">@color/on_brand</item>
+        <item name="colorSecondary">@color/brand</item>
+        <item name="colorOnSecondary">@color/on_brand</item>
+        <item name="colorSecondaryContainer">#40F2A541</item>
+        <item name="colorOnSecondaryContainer">@color/text_primary</item>
+        <item name="colorAccent">@color/brand</item>
+        <item name="colorSurface">@color/card</item>
+        <item name="colorOnSurface">@color/text_primary</item>
+        <item name="colorOnSurfaceVariant">@color/text_secondary</item>
+        <item name="colorSurfaceContainer">@color/card</item>
+        <item name="colorSurfaceContainerLow">@color/card</item>
+        <item name="colorSurfaceContainerHigh">@color/card</item>
+        <item name="colorSurfaceContainerHighest">@color/surface_alt</item>
+        <item name="colorOutline">@color/text_secondary</item>
+        <item name="android:colorBackground">@color/bg</item>
         <item name="android:windowBackground">@color/bg</item>
-        <item name="android:statusBarColor">@color/brand_dark</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/card</item>
+        <item name="android:windowLightStatusBar">@bool/light_bars</item>
+        <item name="android:windowLightNavigationBar">@bool/light_bars</item>
     </style>
 
     <!-- Small floating window shown when a link is shared to the app -->
-    <style name="Theme.SwiftLoad.Dialog" parent="Theme.Material3.Light.Dialog.Alert">
+    <style name="Theme.SwiftLoad.Dialog" parent="Theme.Material3.DayNight.Dialog.Alert">
         <item name="colorPrimary">@color/brand</item>
-        <item name="colorSecondary">@color/accent</item>
+        <item name="colorOnPrimary">@color/on_brand</item>
+        <item name="colorSecondary">@color/brand</item>
+        <item name="colorSurface">@color/card</item>
+        <item name="colorSurfaceContainerHigh">@color/card</item>
         <item name="windowNoTitle">true</item>
         <item name="android:windowCloseOnTouchOutside">false</item>
         <item name="android:windowMinWidthMajor">88%</item>
         <item name="android:windowMinWidthMinor">92%</item>
+    </style>
+
+    <!-- Video / music player: always black -->
+    <style name="Theme.SwiftLoad.Player" parent="Theme.SwiftLoad">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:statusBarColor">@android:color/black</item>
+        <item name="android:navigationBarColor">@android:color/black</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
     </style>
 </resources>

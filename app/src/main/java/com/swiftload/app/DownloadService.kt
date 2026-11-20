@@ -78,7 +78,8 @@ class DownloadService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = ConcurrentHashMap<String, Job>()
-    private val limiter = Semaphore(3) // at most 3 downloads at the same time
+    // How many downloads run at once (Settings → Download settings, 1–5); read when the service starts
+    private val limiter by lazy { Semaphore(Settings.maxParallel(this)) }
 
     override fun onBind(intent: Intent?): IBinder? = null
 

@@ -1,0 +1,11 @@
+<resources>
+    <!-- DARK theme (the default) -->
+    <color name="bg">#0F1115</color>
+    <color name="card">#1A1D23</color>
+    <color name="surface_alt">#262A32</color>
+    <color name="text_primary">#F2F3F5</color>
+    <color name="text_secondary">#A0A6B1</color>
+    <color name="divider">#26FFFFFF</color>
+    <color name="error">#FF6B6B</color>
+    <color name="success">#4CD08A</color>
+</resources>

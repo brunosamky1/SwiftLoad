@@ -1,11 +1,18 @@
 <resources>
-    <color name="brand">#0B6E4F</color>
-    <color name="brand_dark">#08513A</color>
+    <!-- SwiftLoad orange: our accent in both themes -->
+    <color name="brand">#F2A541</color>
+    <color name="brand_dark">#C9822A</color>
     <color name="accent">#F2A541</color>
-    <color name="bg">#F6F7F5</color>
+    <color name="on_brand">#2A1700</color>
+    <color name="launcher_bg">#1A1D23</color>
+
+    <!-- LIGHT theme (values-night/colors.xml has the dark versions) -->
+    <color name="bg">#F4F5F7</color>
     <color name="card">#FFFFFF</color>
-    <color name="text_primary">#1B1F1D</color>
-    <color name="text_secondary">#5E6763</color>
-    <color name="error">#C0392B</color>
-    <color name="success">#1E8E5A</color>
+    <color name="surface_alt">#ECEEF2</color>
+    <color name="text_primary">#16181D</color>
+    <color name="text_secondary">#5F6570</color>
+    <color name="divider">#1F000000</color>
+    <color name="error">#D64545</color>
+    <color name="success">#1E9E61</color>
 </resources>

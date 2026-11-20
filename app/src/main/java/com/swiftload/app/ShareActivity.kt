@@ -47,6 +47,7 @@ class ShareActivity : AppCompatActivity() {
         val videoTitle = findViewById<TextView>(R.id.videoTitle)
         val videoThumb = findViewById<ImageView>(R.id.videoThumb)
         findViewById<Button>(R.id.btnCancel).setOnClickListener { finish() }
+        AdsProvider.bind(findViewById(R.id.adSlot), AdsProvider.SLOT_SHARE_POPUP)
 
         detail.text = url
         status.text = "Checking link…"
