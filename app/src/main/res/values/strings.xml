@@ -1,0 +1,14 @@
+<resources>
+    <string name="app_name">SwiftLoad</string>
+    <string name="share_label">Download with SwiftLoad</string>
+    <string name="url_hint">Paste a link (YouTube, TikTok, Instagram, any file…)</string>
+    <string name="paste">Paste</string>
+    <string name="download">Download</string>
+    <string name="empty_list">No downloads yet.\n\nTip: in YouTube, TikTok, Instagram or Chrome tap Share → SwiftLoad and the download starts automatically.</string>
+    <string name="settings">Settings</string>
+    <string name="update_engine">Update download engine</string>
+    <string name="clear_finished">Clear finished</string>
+    <string name="media_action">When a video link is shared</string>
+    <string name="video_quality">Video quality</string>
+    <string name="open_downloads">Open Downloads folder</string>
+</resources>

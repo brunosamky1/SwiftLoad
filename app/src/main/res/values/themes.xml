@@ -1,0 +1,20 @@
+<resources>
+    <style name="Theme.SwiftLoad" parent="Theme.Material3.Light.NoActionBar">
+        <item name="colorPrimary">@color/brand</item>
+        <item name="colorPrimaryDark">@color/brand_dark</item>
+        <item name="colorSecondary">@color/accent</item>
+        <item name="colorAccent">@color/accent</item>
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:statusBarColor">@color/brand_dark</item>
+    </style>
+
+    <!-- Small floating window shown when a link is shared to the app -->
+    <style name="Theme.SwiftLoad.Dialog" parent="Theme.Material3.Light.Dialog.Alert">
+        <item name="colorPrimary">@color/brand</item>
+        <item name="colorSecondary">@color/accent</item>
+        <item name="windowNoTitle">true</item>
+        <item name="android:windowCloseOnTouchOutside">false</item>
+        <item name="android:windowMinWidthMajor">88%</item>
+        <item name="android:windowMinWidthMinor">92%</item>
+    </style>
+</resources>

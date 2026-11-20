@@ -1,0 +1,11 @@
+<resources>
+    <color name="brand">#0B6E4F</color>
+    <color name="brand_dark">#08513A</color>
+    <color name="accent">#F2A541</color>
+    <color name="bg">#F6F7F5</color>
+    <color name="card">#FFFFFF</color>
+    <color name="text_primary">#1B1F1D</color>
+    <color name="text_secondary">#5E6763</color>
+    <color name="error">#C0392B</color>
+    <color name="success">#1E8E5A</color>
+</resources>
