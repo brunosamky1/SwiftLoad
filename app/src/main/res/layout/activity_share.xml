@@ -37,18 +37,36 @@
         android:textColor="@color/text_secondary"
         android:textSize="13sp" />
 
-    <!-- Real video title (e.g. the YouTube video name), shown above the Video/MP3 buttons -->
-    <TextView
-        android:id="@+id/videoTitle"
+    <!-- Thumbnail + real video title (e.g. the YouTube video name), shown above the Video/MP3 buttons -->
+    <LinearLayout
+        android:id="@+id/videoInfo"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="14dp"
-        android:ellipsize="end"
-        android:maxLines="3"
-        android:textColor="@color/text_primary"
-        android:textSize="16sp"
-        android:textStyle="bold"
-        android:visibility="gone" />
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/videoThumb"
+            android:layout_width="96dp"
+            android:layout_height="64dp"
+            android:layout_marginEnd="12dp"
+            android:contentDescription="Video thumbnail"
+            android:scaleType="centerCrop"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/videoTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="3"
+            android:textColor="@color/text_primary"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+    </LinearLayout>
 
     <LinearLayout
         android:id="@+id/buttons"

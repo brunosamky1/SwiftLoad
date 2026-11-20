@@ -62,29 +62,6 @@ object Engine {
     private fun prefs(c: Context) = c.getSharedPreferences("engine", Context.MODE_PRIVATE)
 }
 
-/** YouTube login cookies (from the in-app "Sign in to YouTube" screen), in yt-dlp's cookies.txt format. */
-object YoutubeCookies {
-    fun file(context: Context) = File(context.filesDir, "youtube_cookies.txt")
-    fun isSignedIn(context: Context) = file(context).let { it.exists() && it.length() > 0 }
-    fun signOut(context: Context) { file(context).delete() }
-
-    /** Converts "a=1; b=2" (from Android CookieManager) to Netscape cookies.txt lines for .youtube.com and .google.com */
-    fun save(context: Context, youtubeCookies: String?, googleCookies: String?) {
-        val expiry = System.currentTimeMillis() / 1000 + 180L * 24 * 3600
-        val sb = StringBuilder("# Netscape HTTP Cookie File\n")
-        fun add(domain: String, raw: String?) {
-            raw?.split(';')?.map { it.trim() }?.filter { it.contains('=') }?.forEach { kv ->
-                val name = kv.substringBefore('=')
-                val value = kv.substringAfter('=')
-                sb.append("$domain\tTRUE\t/\tTRUE\t$expiry\t$name\t$value\n")
-            }
-        }
-        add(".youtube.com", youtubeCookies)
-        add(".google.com", googleCookies)
-        file(context).writeText(sb.toString())
-    }
-}
-
 /**
  * IDM-style accelerated downloader for direct file links.
  * Splits the file into several parts downloaded at the same time when the server allows it,
@@ -273,10 +250,6 @@ object MediaDownloader {
             addOption("-N", "4")                // 4 fragments in parallel = faster
             addOption("-o", "${dir.absolutePath}/%(title).120B.%(ext)s")
             if (extractorArgs != null) addOption("--extractor-args", extractorArgs)
-            // Use the YouTube account the user signed into inside the app (fixes "Please sign in")
-            if (isYoutube && YoutubeCookies.isSignedIn(context)) {
-                addOption("--cookies", YoutubeCookies.file(context).absolutePath)
-            }
             if (mode == Mode.AUDIO_MP3) {
                 addOption("-f", "ba/b")
                 addOption("-x")

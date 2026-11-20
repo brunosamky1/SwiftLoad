@@ -13,8 +13,8 @@ android {
         applicationId = "com.swiftload.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.2.0"
     }
 
     // One APK per phone CPU type keeps the file small (yt-dlp + Python + FFmpeg are bundled).
@@ -70,6 +70,9 @@ dependencies {
     implementation("androidx.recyclerview:recyclerview:1.3.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
+    // Thumbnails in the download list / share pop-up
+    implementation("io.coil-kt:coil:2.7.0")
 
     // yt-dlp engine (YouTube, TikTok, Instagram, Facebook, X, 1000+ sites) + FFmpeg for MP3/merging
     implementation("io.github.junkfood02.youtubedl-android:library:$youtubedlAndroid")

@@ -50,8 +50,14 @@ class DownloadService : Service() {
         }
 
         /** Creates a new download entry and starts it. */
-        fun enqueue(context: Context, url: String, title: String, mode: Mode, category: Category, mime: String? = null, size: Long = -1): String {
-            val item = DownloadItem(url = url, title = title, mode = mode, category = category, mime = mime, sizeBytes = size)
+        fun enqueue(
+            context: Context, url: String, title: String, mode: Mode, category: Category,
+            mime: String? = null, size: Long = -1, thumbnailUrl: String? = null,
+        ): String {
+            val item = DownloadItem(
+                url = url, title = title, mode = mode, category = category, mime = mime, sizeBytes = size,
+                thumbnailUrl = thumbnailUrl,
+            )
             DownloadStore.add(item)
             start(context, item.id)
             return item.id
@@ -119,23 +125,29 @@ class DownloadService : Service() {
         val dir = Storage.tempDir(this, id)
         DownloadStore.update(id, persist = true) { it.copy(status = Status.RUNNING) }
         notifyProgress(id)
-        if (item.mode != Mode.FILE && Detector.isPlaceholderTitle(item.title)) {
-            // Title is still "YouTube video" etc.: look up the real name in the background.
+        if (item.mode != Mode.FILE && (Detector.isPlaceholderTitle(item.title) || item.thumbnailUrl == null)) {
+            // Title is still "YouTube video" or there's no picture yet: look them up in the background.
             scope.launch {
-                val real = Detector.fetchTitle(item.url) ?: return@launch
+                val info = Detector.fetchInfo(item.url)
                 var changed = false
                 DownloadStore.update(id, persist = true) {
-                    if (it.status == Status.RUNNING && Detector.isPlaceholderTitle(it.title)) {
-                        changed = true; it.copy(title = real)
-                    } else it
+                    var n = it
+                    if (info.title != null && it.status == Status.RUNNING && Detector.isPlaceholderTitle(it.title)) {
+                        n = n.copy(title = info.title)
+                    }
+                    if (info.thumbnailUrl != null && it.thumbnailUrl == null) n = n.copy(thumbnailUrl = info.thumbnailUrl)
+                    changed = n != it
+                    n
                 }
-                if (changed) notifyProgress(id)
+                if (changed && DownloadStore.get(id)?.status == Status.RUNNING) notifyProgress(id)
             }
         }
         try {
             val uri: Uri
             var finalTitle: String
             var mime: String
+            var local = Thumbs.Local(null, -1)
+            var finalCat = item.category
             if (item.mode == Mode.FILE) {
                 val file = java.io.File(dir, Storage.sanitize(item.title))
                 var lastBytes = 0L
@@ -156,6 +168,7 @@ class DownloadService : Service() {
                 }
                 finalTitle = item.title
                 mime = item.mime ?: Detector.mimeFromExt(file.extension) ?: "application/octet-stream"
+                local = Thumbs.fromFile(this, id, file, item.category) // before publish() moves the file
                 uri = Storage.publish(this, file, finalTitle, mime, item.category)
             } else {
                 var lastNotify = 0L
@@ -174,12 +187,21 @@ class DownloadService : Service() {
                 mime = Detector.mimeFromExt(file.extension) ?: if (item.mode == Mode.AUDIO_MP3) "audio/mpeg" else "video/mp4"
                 val cat = if (item.mode == Mode.AUDIO_MP3) Category.AUDIO else Detector.categoryOf(mime, file.name)
                 DownloadStore.update(id) { it.copy(sizeBytes = file.length(), category = cat) }
+                finalCat = cat
+                // Video frame / MP3 cover art, made before publish() moves the file
+                local = Thumbs.fromFile(this, id, file, cat)
                 uri = Storage.publish(this, file, file.name, mime, cat)
                 // List / notification show the clean saved name, without ".mp4" / ".mp3"
                 finalTitle = file.nameWithoutExtension
             }
+            // Prefer the local thumbnail; an image is its own thumbnail; else keep the online one.
+            val thumb = local.thumbUri ?: if (finalCat == Category.IMAGE) uri.toString() else null
             DownloadStore.update(id, persist = true) {
-                it.copy(status = Status.DONE, progress = 100, title = finalTitle, fileUri = uri.toString(), mime = mime, speed = "")
+                it.copy(
+                    status = Status.DONE, progress = 100, title = finalTitle, fileUri = uri.toString(), mime = mime, speed = "",
+                    thumbnailUrl = thumb ?: it.thumbnailUrl,
+                    durationMs = if (local.durationMs > 0) local.durationMs else it.durationMs,
+                )
             }
             notifyDone(id)
         } catch (e: CancellationException) {
@@ -208,8 +230,7 @@ class DownloadService : Service() {
         return when {
             m.contains("Unsupported URL", true) -> "This link has no downloadable video or file."
             m.contains("sign in", true) || m.contains("not a bot", true) || m.contains("login", true) ->
-                if (YoutubeCookies.isSignedIn(this)) "YouTube blocked this download. Try again in a few minutes."
-                else "YouTube asks to sign in. Open menu ⋮ → Sign in to YouTube, then retry."
+                "YouTube blocked this download. Wait a few minutes and tap retry."
             m.contains("Private video", true) -> "This content is private."
             m.contains("Unable to resolve host", true) || m.contains("UnknownHost", true) -> "No internet connection."
             else -> m.removePrefix("ERROR:").trim().take(200)

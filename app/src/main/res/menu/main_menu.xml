@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:id="@+id/menu_login" android:title="Sign in to YouTube" />
     <item android:id="@+id/menu_media_action" android:title="@string/media_action" />
     <item android:id="@+id/menu_quality" android:title="@string/video_quality" />
     <item android:id="@+id/menu_update" android:title="@string/update_engine" />

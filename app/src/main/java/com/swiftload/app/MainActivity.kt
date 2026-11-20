@@ -15,6 +15,7 @@ import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -31,18 +32,14 @@ import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.google.android.material.snackbar.Snackbar
+import coil.dispose
+import coil.load
+import coil.transform.RoundedCornersTransformation
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var urlInput: EditText
-    private var toolbar: MaterialToolbar? = null
-
-    override fun onResume() {
-        super.onResume()
-        toolbar?.menu?.findItem(R.id.menu_login)?.title =
-            if (YoutubeCookies.isSignedIn(this)) "YouTube account ✓ (signed in)" else "Sign in to YouTube"
-    }
     private val adapter = DownloadAdapter(::onItemAction, ::onItemLongPress)
 
     private val permissionLauncher =
@@ -56,7 +53,6 @@ class MainActivity : AppCompatActivity() {
         toolbar.inflateMenu(R.menu.main_menu)
         toolbar.overflowIcon?.setTint(Color.WHITE)
         toolbar.setOnMenuItemClickListener { onMenu(it.itemId); true }
-        this.toolbar = toolbar
 
         urlInput = findViewById(R.id.urlInput)
         findViewById<View>(R.id.btnPaste).setOnClickListener {
@@ -182,22 +178,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun onMenu(id: Int) {
         when (id) {
-            R.id.menu_login -> {
-                if (YoutubeCookies.isSignedIn(this)) {
-                    MaterialAlertDialogBuilder(this)
-                        .setTitle("YouTube account")
-                        .setMessage("You are signed in. YouTube downloads use your account.")
-                        .setPositiveButton("Sign out") { _, _ ->
-                            YoutubeCookies.signOut(this)
-                            android.webkit.CookieManager.getInstance().removeAllCookies(null)
-                            toast("Signed out")
-                        }
-                        .setNegativeButton("Close", null)
-                        .show()
-                } else {
-                    startActivity(Intent(this, LoginActivity::class.java))
-                }
-            }
             R.id.menu_media_action -> {
                 val labels = arrayOf("Ask me every time", "Always download video (MP4)", "Always download audio (MP3)")
                 MaterialAlertDialogBuilder(this)
@@ -250,10 +230,47 @@ class DownloadAdapter(
 
     class VH(v: View) : RecyclerView.ViewHolder(v) {
         val icon: TextView = v.findViewById(R.id.icon)
+        val thumb: ImageView = v.findViewById(R.id.thumb)
+        val playIcon: ImageView = v.findViewById(R.id.playIcon)
+        val duration: TextView = v.findViewById(R.id.duration)
         val title: TextView = v.findViewById(R.id.title)
         val meta: TextView = v.findViewById(R.id.meta)
         val progress: LinearProgressIndicator = v.findViewById(R.id.progress)
         val action: ImageButton = v.findViewById(R.id.action)
+    }
+
+    /** Thumbnail with rounded corners; videos also get a play icon and their length (mm:ss). */
+    private fun bindThumb(h: VH, item: DownloadItem) {
+        val isVideo = item.category == Category.VIDEO
+        h.duration.text = formatDuration(item.durationMs)
+        h.duration.visibility = if (isVideo && item.durationMs > 0) View.VISIBLE else View.GONE
+
+        val url = item.thumbnailUrl
+        // The list refreshes several times a second while downloading: don't reload the same picture.
+        if (url != null && url == h.thumb.tag) return
+        h.thumb.tag = url
+        h.playIcon.visibility = View.GONE
+        if (url == null) {
+            h.thumb.dispose()
+            h.thumb.setImageDrawable(null) // the emoji underneath shows
+            return
+        }
+        val radius = 12 * h.itemView.resources.displayMetrics.density
+        h.thumb.load(url) {
+            crossfade(true)
+            transformations(RoundedCornersTransformation(radius))
+            listener(
+                onSuccess = { _, _ -> if (isVideo) h.playIcon.visibility = View.VISIBLE },
+                onError = { _, _ -> h.thumb.setImageDrawable(null) },
+            )
+        }
+    }
+
+    private fun formatDuration(ms: Long): String {
+        if (ms <= 0) return ""
+        val s = ms / 1000
+        return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, (s % 3600) / 60, s % 60)
+        else "%d:%02d".format(s / 60, s % 60)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) =
@@ -266,6 +283,7 @@ class DownloadAdapter(
             Category.VIDEO -> "🎬"; Category.AUDIO -> "🎵"; Category.IMAGE -> "🖼️"
             Category.DOCUMENT -> "📄"; Category.ARCHIVE -> "🗜️"; Category.APP -> "📱"; Category.OTHER -> "📦"
         }
+        bindThumb(h, it)
         h.title.text = it.title
         val size = Storage.formatSize(it.sizeBytes)
         val kind = when (it.mode) { Mode.AUDIO_MP3 -> "MP3"; Mode.VIDEO -> "Video"; Mode.FILE -> it.category.label }

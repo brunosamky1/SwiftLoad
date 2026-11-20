@@ -121,22 +121,28 @@ object Detector {
     /** True for the temporary names used until the real title is known ("YouTube video", "TikTok MP3"). */
     fun isPlaceholderTitle(title: String) = title.endsWith(" video") || title.endsWith(" MP3")
 
+    /** Real title + thumbnail picture of a video page; either can be null. */
+    data class PageInfo(val title: String?, val thumbnailUrl: String?)
+
     /**
-     * Finds the real title of a video page (e.g. the YouTube video name) quickly, without yt-dlp.
-     * Never throws; returns null if nothing is found within [timeoutMs].
+     * Finds the real title and thumbnail of a video page (e.g. the YouTube video) quickly, without yt-dlp.
+     * Never throws; fields are null if nothing is found within [timeoutMs].
      */
-    suspend fun fetchTitle(url: String, timeoutMs: Long = 8_000): String? = try {
-        // Runs on a detached IO job so a stuck network read can't hold the caller past the timeout.
-        val job = CoroutineScope(Dispatchers.IO).async { runCatching { fetchTitleBlocking(url) }.getOrNull() }
-        withTimeoutOrNull(timeoutMs) { job.await() } ?: run { job.cancel(); null }
-    } catch (e: kotlinx.coroutines.CancellationException) {
-        throw e
-    } catch (e: Throwable) {
-        null
+    suspend fun fetchInfo(url: String, timeoutMs: Long = 8_000): PageInfo {
+        val fallback = PageInfo(null, youtubeThumb(url))
+        return try {
+            // Runs on a detached IO job so a stuck network read can't hold the caller past the timeout.
+            val job = CoroutineScope(Dispatchers.IO).async { runCatching { fetchInfoBlocking(url) }.getOrNull() }
+            withTimeoutOrNull(timeoutMs) { job.await() } ?: run { job.cancel(); fallback }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            fallback
+        }
     }
 
-    private fun fetchTitleBlocking(url: String): String? {
-        val host = Uri.parse(url).host?.lowercase(Locale.ROOT) ?: return null
+    private fun fetchInfoBlocking(url: String): PageInfo {
+        val host = Uri.parse(url).host?.lowercase(Locale.ROOT) ?: return PageInfo(null, null)
         val enc = URLEncoder.encode(url, "UTF-8")
         val oembed = when {
             isYoutube(url) -> "https://www.youtube.com/oembed?url=$enc&format=json"
@@ -144,26 +150,66 @@ object Detector {
             host.endsWith("vimeo.com") -> "https://vimeo.com/api/oembed.json?url=$enc"
             else -> null
         }
+        var title: String? = null
+        var thumb: String? = null
         if (oembed != null) {
-            runCatching { clean(JSONObject(readText(oembed, 64 * 1024)).optString("title")) }
-                .getOrNull()?.let { return it }
+            runCatching {
+                val o = JSONObject(readText(oembed, 64 * 1024))
+                title = clean(o.optString("title"))
+                thumb = o.optString("thumbnail_url").trim().ifEmpty { null }
+            }
         }
-        // Any other site (or oEmbed failed): read the start of the HTML page.
-        val html = readText(url, 200 * 1024)
-        return clean(ogTitle(html)) ?: clean(htmlTitle(html))
+        if (thumb == null) thumb = youtubeThumb(url)
+        if (title == null || thumb == null) {
+            // Any other site (or oEmbed failed): read the start of the HTML page.
+            runCatching {
+                val html = readText(url, 200 * 1024)
+                if (title == null) title = clean(metaContent(html, OG_TITLE_ATTR)) ?: clean(htmlTitle(html))
+                if (thumb == null) thumb = metaContent(html, OG_IMAGE_ATTR)?.let { absoluteUrl(url, it) }
+            }
+        }
+        return PageInfo(title, thumb)
     }
+
+    private val YT_ID = Regex("""^[A-Za-z0-9_-]{11}$""")
+
+    /** Video id from youtube.com/watch?v=…, youtu.be/…, /shorts/…, /embed/…, /live/… */
+    fun youtubeId(url: String): String? {
+        if (!isYoutube(url)) return null
+        val u = Uri.parse(url)
+        val segs = u.pathSegments
+        val id = when {
+            u.host.equals("youtu.be", true) -> segs.firstOrNull()
+            segs.firstOrNull() in setOf("shorts", "embed", "live", "v") -> segs.getOrNull(1)
+            else -> runCatching { u.getQueryParameter("v") }.getOrNull()
+        }
+        return id?.takeIf { YT_ID.matches(it) }
+    }
+
+    /** Always-available YouTube picture, used when oEmbed gives none. */
+    fun youtubeThumb(url: String): String? = youtubeId(url)?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
 
     private val META_TAG = Regex("""<meta\b[^>]*>""", RegexOption.IGNORE_CASE)
     private val OG_TITLE_ATTR = Regex("""(?:property|name)\s*=\s*["']og:title["']""", RegexOption.IGNORE_CASE)
+    private val OG_IMAGE_ATTR =
+        Regex("""(?:property|name)\s*=\s*["'](?:og:image(?::url|:secure_url)?|twitter:image)["']""", RegexOption.IGNORE_CASE)
     private val CONTENT_ATTR = Regex("""content\s*=\s*(?:"([^"]*)"|'([^']*)')""", RegexOption.IGNORE_CASE)
     private val TITLE_TAG = Regex("""<title[^>]*>(.*?)</title>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
     private val CHARSET = Regex("""charset=([\w-]+)""", RegexOption.IGNORE_CASE)
     private val SPACES = Regex("""\s+""")
 
-    private fun ogTitle(html: String): String? = META_TAG.findAll(html)
+    /** content="…" of the first <meta> tag whose property/name matches [attr]. */
+    private fun metaContent(html: String, attr: Regex): String? = META_TAG.findAll(html)
         .map { it.value }
-        .firstOrNull { OG_TITLE_ATTR.containsMatchIn(it) }
+        .firstOrNull { attr.containsMatchIn(it) }
         ?.let { tag -> CONTENT_ATTR.find(tag)?.let { m -> m.groupValues[1].ifEmpty { m.groupValues[2] } } }
+        ?.trim()?.ifEmpty { null }
+
+    /** "/img/a.jpg" or "//cdn/a.jpg" -> full https URL; also turns &amp; into &. */
+    private fun absoluteUrl(base: String, raw: String): String? = runCatching {
+        val decoded = Html.fromHtml(raw, Html.FROM_HTML_MODE_LEGACY).toString().trim()
+        URL(URL(base), decoded).toString().takeIf { it.startsWith("http") }
+    }.getOrNull()
 
     private fun htmlTitle(html: String): String? = TITLE_TAG.find(html)?.groupValues?.get(1)
 

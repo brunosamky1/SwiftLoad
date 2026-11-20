@@ -38,6 +38,10 @@ data class DownloadItem(
     val mime: String? = null,
     val error: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
+    /** Online thumbnail (https://…) or a local one (file://… in cacheDir/thumbs, or the image's content:// uri). */
+    val thumbnailUrl: String? = null,
+    /** Video/audio length in ms, -1 = unknown. */
+    val durationMs: Long = -1,
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id); put("url", url); put("title", title)
@@ -45,6 +49,7 @@ data class DownloadItem(
         put("progress", progress); put("sizeBytes", sizeBytes)
         put("fileUri", fileUri ?: ""); put("mime", mime ?: ""); put("error", error ?: "")
         put("createdAt", createdAt)
+        put("thumbnailUrl", thumbnailUrl ?: ""); put("durationMs", durationMs)
     }
 
     companion object {
@@ -66,6 +71,9 @@ data class DownloadItem(
                 mime = o.optString("mime").ifEmpty { null },
                 error = if (interrupted) "Interrupted — tap to retry" else o.optString("error").ifEmpty { null },
                 createdAt = o.optLong("createdAt"),
+                // Old items saved before thumbnails existed simply have no such keys
+                thumbnailUrl = o.optString("thumbnailUrl").ifEmpty { null },
+                durationMs = o.optLong("durationMs", -1),
             )
         }
     }
@@ -104,10 +112,13 @@ object DownloadStore {
 
     fun remove(id: String) {
         _items.value = _items.value.filterNot { it.id == id }
+        Thumbs.delete(appContext, id)
         save()
     }
 
     fun clearFinished() {
+        _items.value.filterNot { it.status == Status.RUNNING || it.status == Status.QUEUED }
+            .forEach { Thumbs.delete(appContext, it.id) }
         _items.value = _items.value.filter { it.status == Status.RUNNING || it.status == Status.QUEUED }
         save()
     }
