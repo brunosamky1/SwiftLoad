@@ -11,7 +11,10 @@ import java.util.UUID
 /** How a link is downloaded. */
 enum class Mode { FILE, VIDEO, AUDIO_MP3 }
 
-enum class Status { QUEUED, RUNNING, DONE, FAILED, CANCELLED }
+enum class Status { QUEUED, RUNNING, DONE, FAILED, CANCELLED, SCHEDULED }
+
+/** When a scheduled download should start (see Scheduler). */
+enum class ScheduleType { NONE, NIGHT, TIME, WIFI }
 
 /** File category, used for the sub-folder inside Download/SwiftLoad and for the label in the list. */
 enum class Category(val folder: String, val label: String) {
@@ -42,6 +45,15 @@ data class DownloadItem(
     val thumbnailUrl: String? = null,
     /** Video/audio length in ms, -1 = unknown. */
     val durationMs: Long = -1,
+    /** Page the file was found on (media sniffer): sent as Referer, cookies are added at download time. */
+    val referer: String? = null,
+    /** Max video height for this item (HLS/DASH quality picked in the sniffer); 0 = Settings value. */
+    val maxHeight: Int = 0,
+    val scheduleType: ScheduleType = ScheduleType.NONE,
+    /** Planned start (ms) for NIGHT / TIME schedules. */
+    val scheduledAt: Long = 0,
+    /** Position in the queue (lower starts first); drag to reorder in the Queue screen. */
+    val queueOrder: Long = createdAt,
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id); put("url", url); put("title", title)
@@ -50,6 +62,8 @@ data class DownloadItem(
         put("fileUri", fileUri ?: ""); put("mime", mime ?: ""); put("error", error ?: "")
         put("createdAt", createdAt)
         put("thumbnailUrl", thumbnailUrl ?: ""); put("durationMs", durationMs)
+        put("referer", referer ?: ""); put("maxHeight", maxHeight)
+        put("scheduleType", scheduleType.name); put("scheduledAt", scheduledAt); put("queueOrder", queueOrder)
     }
 
     companion object {
@@ -74,6 +88,11 @@ data class DownloadItem(
                 // Old items saved before thumbnails existed simply have no such keys
                 thumbnailUrl = o.optString("thumbnailUrl").ifEmpty { null },
                 durationMs = o.optLong("durationMs", -1),
+                referer = o.optString("referer").ifEmpty { null },
+                maxHeight = o.optInt("maxHeight", 0),
+                scheduleType = runCatching { ScheduleType.valueOf(o.optString("scheduleType", "NONE")) }.getOrDefault(ScheduleType.NONE),
+                scheduledAt = o.optLong("scheduledAt", 0),
+                queueOrder = o.optLong("queueOrder", o.optLong("createdAt")),
             )
         }
     }
@@ -117,9 +136,9 @@ object DownloadStore {
     }
 
     fun clearFinished() {
-        _items.value.filterNot { it.status == Status.RUNNING || it.status == Status.QUEUED }
+        _items.value.filterNot { it.status == Status.RUNNING || it.status == Status.QUEUED || it.status == Status.SCHEDULED }
             .forEach { Thumbs.delete(appContext, it.id) }
-        _items.value = _items.value.filter { it.status == Status.RUNNING || it.status == Status.QUEUED }
+        _items.value = _items.value.filter { it.status == Status.RUNNING || it.status == Status.QUEUED || it.status == Status.SCHEDULED }
         save()
     }
 
@@ -169,6 +188,20 @@ object Settings {
     /** Rename to VidSaver: was the user asked about moving Download/SwiftLoad -> Download/VidSaver? */
     fun folderMoveAsked(c: Context) = prefs(c).getBoolean("folderMoveAsked", false)
     fun setFolderMoveAsked(c: Context) = prefs(c).edit().putBoolean("folderMoveAsked", true).apply()
+
+    /** Night bundle hours as minutes of the day; default 00:00 – 05:59 (end minute included). */
+    fun nightStart(c: Context) = prefs(c).getInt("nightStart", 0)
+    fun nightEnd(c: Context) = prefs(c).getInt("nightEnd", 5 * 60 + 59)
+    fun setNightHours(c: Context, start: Int, end: Int) =
+        prefs(c).edit().putInt("nightStart", start).putInt("nightEnd", end).apply()
+
+    /** Scheduled downloads wait for Wi-Fi (unmetered network). */
+    fun wifiOnly(c: Context) = prefs(c).getBoolean("wifiOnly", false)
+    fun setWifiOnly(c: Context, v: Boolean) = prefs(c).edit().putBoolean("wifiOnly", v).apply()
+
+    /** Night downloads still running when the night hours end are paused and continue the next night. */
+    fun pauseAfterNight(c: Context) = prefs(c).getBoolean("pauseAfterNight", true)
+    fun setPauseAfterNight(c: Context, v: Boolean) = prefs(c).edit().putBoolean("pauseAfterNight", v).apply()
 
     fun lastClipboard(c: Context) = prefs(c).getString("lastClip", "") ?: ""
     fun setLastClipboard(c: Context, v: String) = prefs(c).edit().putString("lastClip", v).apply()

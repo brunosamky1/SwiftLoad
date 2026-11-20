@@ -236,6 +236,9 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
             "${getString(R.string.video_quality)}: ${qualityLabels[qualityValues.indexOf(Settings.videoQuality(c)).coerceAtLeast(0)]}",
             "Max simultaneous downloads: ${Settings.maxParallel(c)}",
             "Download folder",
+            "Night bundle hours: ${Scheduler.nightLabel(c)}",
+            "Scheduled downloads on Wi-Fi only: ${if (Settings.wifiOnly(c)) "On" else "Off"}",
+            "Pause scheduled downloads after night hours end: ${if (Settings.pauseAfterNight(c)) "On" else "Off"}",
         )
         MaterialAlertDialogBuilder(c)
             .setTitle("Download settings")
@@ -258,6 +261,24 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
                             "• Archives — ZIP, RAR …\n• Apps — APK\n• Other\n\n" +
                             "Open them in the Play tab or with your Files app.",
                     )
+                    4 -> {
+                        val a = activity as? androidx.appcompat.app.AppCompatActivity ?: return@setItems
+                        LaterPicker.pickTime(a, Settings.nightStart(c), "Night bundle starts at") { start ->
+                            LaterPicker.pickTime(a, Settings.nightEnd(c), "Night bundle ends at") { end ->
+                                Settings.setNightHours(c, start, end)
+                                toast("Night bundle hours: ${Scheduler.nightLabel(c)}")
+                                downloadSummary?.update(downloadText())
+                            }
+                        }
+                    }
+                    5 -> {
+                        Settings.setWifiOnly(c, !Settings.wifiOnly(c))
+                        toast("Scheduled downloads on Wi-Fi only: ${if (Settings.wifiOnly(c)) "On" else "Off"} (for newly scheduled downloads)")
+                    }
+                    6 -> {
+                        Settings.setPauseAfterNight(c, !Settings.pauseAfterNight(c))
+                        toast("Pause after night hours: ${if (Settings.pauseAfterNight(c)) "On" else "Off"}")
+                    }
                 }
             }
             .show()

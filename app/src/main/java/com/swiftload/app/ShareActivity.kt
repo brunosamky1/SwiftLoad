@@ -37,6 +37,10 @@ class ShareActivity : AppCompatActivity() {
             Toast.makeText(this, "No link found in what you shared", Toast.LENGTH_LONG).show()
             finish(); return
         }
+        if (Blocklist.isBlocked(url)) {
+            Toast.makeText(this, Blocklist.MESSAGE, Toast.LENGTH_LONG).show()
+            finish(); return
+        }
 
         val status = findViewById<TextView>(R.id.status)
         val detail = findViewById<TextView>(R.id.detail)
@@ -56,6 +60,7 @@ class ShareActivity : AppCompatActivity() {
             val r = runCatching { Detector.detect(url) }.getOrElse {
                 Detector.Result(url, true, "", null, -1, Category.VIDEO)
             }
+            if (Blocklist.isBlocked(r.url)) { toast(Blocklist.MESSAGE); finish(); return@launch } // redirected to YouTube
 
             if (!r.isMediaPage) {
                 // Direct file: download straight away.
@@ -96,16 +101,34 @@ class ShareActivity : AppCompatActivity() {
             buttons.visibility = View.VISIBLE
             btnVideo.setOnClickListener { startMedia(r.url, site, info, Mode.VIDEO) }
             btnMp3.setOnClickListener { startMedia(r.url, site, info, Mode.AUDIO_MP3) }
+            findViewById<Button>(R.id.btnLater).setOnClickListener {
+                LaterPicker.show(this@ShareActivity) { type, at ->
+                    com.google.android.material.dialog.MaterialAlertDialogBuilder(this@ShareActivity)
+                        .setTitle("Download later as")
+                        .setItems(arrayOf("🎬  Video (MP4)", "🎵  Audio (MP3)")) { _, which ->
+                            startMedia(r.url, site, info, if (which == 0) Mode.VIDEO else Mode.AUDIO_MP3, type to at)
+                        }
+                        .show()
+                }
+            }
         }
     }
 
-    private fun startMedia(url: String, site: String, info: Detector.PageInfo, mode: Mode) {
+    /** [later]: schedule instead of starting now (Tonight / a time / on Wi-Fi). */
+    private fun startMedia(url: String, site: String, info: Detector.PageInfo, mode: Mode, later: Pair<ScheduleType, Long>? = null) {
         val kind = if (mode == Mode.AUDIO_MP3) "MP3" else "video"
         val cat = if (mode == Mode.AUDIO_MP3) Category.AUDIO else Category.VIDEO
         val title = info.title
         // Without a real title we use a placeholder; DownloadService replaces it once the title is known.
-        DownloadService.enqueue(this, url, title ?: "$site $kind", mode, cat, thumbnailUrl = info.thumbnailUrl)
-        toast(if (title != null) "Downloading $kind: $title" else "Downloading $kind from $site…")
+        val id = DownloadService.enqueue(this, url, title ?: "$site $kind", mode, cat,
+            thumbnailUrl = info.thumbnailUrl, startNow = later == null)
+        if (id == null) { finish(); return }
+        if (later != null) {
+            Scheduler.schedule(this, id, later.first, later.second)
+            DownloadStore.get(id)?.let { toast("Scheduled · ${Scheduler.label(it)}: ${it.title}") }
+        } else {
+            toast(if (title != null) "Downloading $kind: $title" else "Downloading $kind from $site…")
+        }
         finish()
     }
 
@@ -114,7 +137,6 @@ class ShareActivity : AppCompatActivity() {
     private fun siteName(url: String): String {
         val host = Uri.parse(url).host?.lowercase()?.removePrefix("www.")?.removePrefix("m.") ?: return "Web"
         return when {
-            host.contains("youtu") -> "YouTube"
             host.contains("tiktok") -> "TikTok"
             host.contains("instagram") -> "Instagram"
             host.contains("facebook") || host.contains("fb.watch") -> "Facebook"

@@ -92,6 +92,15 @@
             android:text="🎵  Audio (MP3)"
             android:textColor="@color/brand"
             app:strokeColor="@color/brand" />
+
+        <!-- Tonight (night bundle) / pick a time / when on Wi-Fi -->
+        <Button
+            android:id="@+id/btnLater"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="🕒  Download later" />
     </LinearLayout>
 
     <Button

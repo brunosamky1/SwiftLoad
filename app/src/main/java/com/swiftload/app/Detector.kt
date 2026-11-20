@@ -129,7 +129,8 @@ object Detector {
      * Never throws; fields are null if nothing is found within [timeoutMs].
      */
     suspend fun fetchInfo(url: String, timeoutMs: Long = 8_000): PageInfo {
-        val fallback = PageInfo(null, youtubeThumb(url))
+        val fallback = PageInfo(null, null)
+        if (Blocklist.isBlocked(url)) return fallback // YouTube is not supported: never contacted
         return try {
             // Runs on a detached IO job so a stuck network read can't hold the caller past the timeout.
             val job = CoroutineScope(Dispatchers.IO).async { runCatching { fetchInfoBlocking(url) }.getOrNull() }
@@ -145,7 +146,6 @@ object Detector {
         val host = Uri.parse(url).host?.lowercase(Locale.ROOT) ?: return PageInfo(null, null)
         val enc = URLEncoder.encode(url, "UTF-8")
         val oembed = when {
-            isYoutube(url) -> "https://www.youtube.com/oembed?url=$enc&format=json"
             host.endsWith("tiktok.com") -> "https://www.tiktok.com/oembed?url=$enc"
             host.endsWith("vimeo.com") -> "https://vimeo.com/api/oembed.json?url=$enc"
             else -> null
@@ -159,7 +159,6 @@ object Detector {
                 thumb = o.optString("thumbnail_url").trim().ifEmpty { null }
             }
         }
-        if (thumb == null) thumb = youtubeThumb(url)
         if (title == null || thumb == null) {
             // Any other site (or oEmbed failed): read the start of the HTML page.
             runCatching {
@@ -170,24 +169,6 @@ object Detector {
         }
         return PageInfo(title, thumb)
     }
-
-    private val YT_ID = Regex("""^[A-Za-z0-9_-]{11}$""")
-
-    /** Video id from youtube.com/watch?v=…, youtu.be/…, /shorts/…, /embed/…, /live/… */
-    fun youtubeId(url: String): String? {
-        if (!isYoutube(url)) return null
-        val u = Uri.parse(url)
-        val segs = u.pathSegments
-        val id = when {
-            u.host.equals("youtu.be", true) -> segs.firstOrNull()
-            segs.firstOrNull() in setOf("shorts", "embed", "live", "v") -> segs.getOrNull(1)
-            else -> runCatching { u.getQueryParameter("v") }.getOrNull()
-        }
-        return id?.takeIf { YT_ID.matches(it) }
-    }
-
-    /** Always-available YouTube picture, used when oEmbed gives none. */
-    fun youtubeThumb(url: String): String? = youtubeId(url)?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
 
     private val META_TAG = Regex("""<meta\b[^>]*>""", RegexOption.IGNORE_CASE)
     private val OG_TITLE_ATTR = Regex("""(?:property|name)\s*=\s*["']og:title["']""", RegexOption.IGNORE_CASE)
@@ -246,15 +227,19 @@ object Detector {
         }
     }
 
-    fun open(url: String, method: String): HttpURLConnection =
-        (URL(url).openConnection() as HttpURLConnection).apply {
+    /** [headers]: extra request headers, e.g. Referer + Cookie for files found on a web page. Blocked hosts are refused. */
+    fun open(url: String, method: String, headers: Map<String, String> = emptyMap()): HttpURLConnection {
+        if (Blocklist.isBlocked(url)) throw java.io.IOException(Blocklist.MESSAGE)
+        return (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = method
             instanceFollowRedirects = true
             connectTimeout = 15_000
             readTimeout = 30_000
             setRequestProperty("User-Agent", USER_AGENT)
             setRequestProperty("Accept", "*/*")
+            headers.forEach { (k, v) -> setRequestProperty(k, v) }
         }
+    }
 
     fun mimeFromExt(ext: String): String? {
         if (ext.isBlank()) return null

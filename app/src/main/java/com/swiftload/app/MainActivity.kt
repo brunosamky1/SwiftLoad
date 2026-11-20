@@ -119,7 +119,7 @@ class MainActivity : AppCompatActivity() {
         super.onWindowFocusChanged(hasFocus)
         if (!hasFocus) return
         val clip = clipboardText() ?: return
-        val url = Detector.extractUrl(clip)?.takeIf { clip.contains("://") } ?: return
+        val url = Detector.extractUrl(clip)?.takeIf { clip.contains("://") && !Blocklist.isBlocked(it) } ?: return
         if (url == Settings.lastClipboard(this)) return
         Settings.setLastClipboard(this, url)
         Snackbar.make(findViewById(R.id.fragmentContainer), "Copied link found:\n$url", Snackbar.LENGTH_LONG)

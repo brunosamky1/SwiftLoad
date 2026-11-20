@@ -19,6 +19,7 @@ import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicLongArray
 import kotlin.coroutines.coroutineContext
 
 /** Lazily starts the bundled yt-dlp + FFmpeg engine. */
@@ -65,79 +66,106 @@ object Engine {
 /**
  * IDM-style accelerated downloader for direct file links.
  * Splits the file into several parts downloaded at the same time when the server allows it,
- * and retries/resumes each part if the connection drops.
+ * retries/resumes each part if the connection drops, and remembers the parts' progress in
+ * "<file>.parts" so a paused download (night hours ended) continues where it stopped.
  */
 object DirectDownloader {
     private const val MIN_SPLIT_SIZE = 2L * 1024 * 1024
     private const val MAX_PARTS = 6
     private const val RETRIES = 5
 
-    suspend fun download(url: String, dest: File, onProgress: (done: Long, total: Long) -> Unit) =
-        withContext(Dispatchers.IO) {
-            // Does the server support byte ranges?
-            var total = -1L
-            var ranges = false
-            runCatching {
-                val c = Detector.open(url, "GET").apply { setRequestProperty("Range", "bytes=0-0") }
-                if (c.responseCode == 206) {
-                    total = c.getHeaderField("Content-Range")?.substringAfter('/')?.toLongOrNull() ?: -1
-                    ranges = total > 0
-                } else if (c.responseCode in 200..299) {
-                    total = c.contentLengthLong
-                }
-                c.disconnect()
+    /** [headers]: extra request headers (Referer, Cookie) for files found on a web page. */
+    suspend fun download(
+        url: String, dest: File, headers: Map<String, String> = emptyMap(),
+        onProgress: (done: Long, total: Long) -> Unit,
+    ) = withContext(Dispatchers.IO) {
+        // Does the server support byte ranges?
+        var total = -1L
+        var ranges = false
+        runCatching {
+            val c = Detector.open(url, "GET", headers).apply { setRequestProperty("Range", "bytes=0-0") }
+            if (c.responseCode == 206) {
+                total = c.getHeaderField("Content-Range")?.substringAfter('/')?.toLongOrNull() ?: -1
+                ranges = total > 0
+            } else if (c.responseCode in 200..299) {
+                total = c.contentLengthLong
             }
-
-            val done = AtomicLong(0)
-            val reporter = launch {
-                while (isActive) { onProgress(done.get(), total); delay(500) }
-            }
-            try {
-                if (ranges && total >= MIN_SPLIT_SIZE) {
-                    RandomAccessFile(dest, "rw").use { it.setLength(total) }
-                    val parts = (total / MIN_SPLIT_SIZE).coerceIn(2, MAX_PARTS.toLong()).toInt()
-                    val chunk = total / parts
-                    coroutineScope {
-                        (0 until parts).map { i ->
-                            val start = i * chunk
-                            val end = if (i == parts - 1) total - 1 else start + chunk - 1
-                            async { downloadRange(url, dest, start, end, done) }
-                        }.awaitAll()
-                    }
-                } else {
-                    downloadSingle(url, dest, done)
-                    if (total <= 0) total = dest.length()
-                }
-            } finally {
-                reporter.cancel()
-            }
-            onProgress(dest.length(), dest.length())
+            c.disconnect()
         }
 
-    private suspend fun downloadRange(url: String, dest: File, start: Long, end: Long, done: AtomicLong) {
-        var pos = start
+        val done = AtomicLong(0)
+        val state = File(dest.path + ".parts")
+        var positions: AtomicLongArray? = null
+        val reporter = launch {
+            while (isActive) {
+                onProgress(done.get(), total)
+                positions?.let { p ->
+                    runCatching {
+                        state.writeText("$total,${p.length()}\n" + (0 until p.length()).joinToString("\n") { p.get(it).toString() })
+                    }
+                }
+                delay(500)
+            }
+        }
+        try {
+            if (ranges && total >= MIN_SPLIT_SIZE) {
+                val parts = (total / MIN_SPLIT_SIZE).coerceIn(2, MAX_PARTS.toLong()).toInt()
+                val chunk = total / parts
+                val starts = LongArray(parts) { it * chunk }
+                val ends = LongArray(parts) { if (it == parts - 1) total - 1 else starts[it] + chunk - 1 }
+                val pos = AtomicLongArray(parts)
+                // Continue a paused download if the saved state matches this file
+                val saved = runCatching { state.readLines() }.getOrNull()
+                if (saved != null && saved.firstOrNull() == "$total,$parts" && dest.length() == total) {
+                    for (i in 0 until parts) {
+                        pos.set(i, (saved.getOrNull(i + 1)?.toLongOrNull() ?: starts[i]).coerceIn(starts[i], ends[i] + 1))
+                    }
+                } else {
+                    RandomAccessFile(dest, "rw").use { it.setLength(total) }
+                    for (i in 0 until parts) pos.set(i, starts[i])
+                }
+                done.set((0 until parts).sumOf { pos.get(it) - starts[it] })
+                positions = pos
+                coroutineScope {
+                    (0 until parts).map { i -> async { downloadRange(url, dest, headers, pos, i, ends[i], done) } }.awaitAll()
+                }
+                positions = null
+                state.delete()
+            } else {
+                downloadSingle(url, dest, headers, done)
+                if (total <= 0) total = dest.length()
+            }
+        } finally {
+            reporter.cancel()
+        }
+        onProgress(dest.length(), dest.length())
+    }
+
+    private suspend fun downloadRange(
+        url: String, dest: File, headers: Map<String, String>, pos: AtomicLongArray, i: Int, end: Long, done: AtomicLong,
+    ) {
         var attempt = 0
-        while (pos <= end) {
+        while (pos.get(i) <= end) {
             try {
-                val c = Detector.open(url, "GET").apply { setRequestProperty("Range", "bytes=$pos-$end") }
+                val c = Detector.open(url, "GET", headers).apply { setRequestProperty("Range", "bytes=${pos.get(i)}-$end") }
                 if (c.responseCode != 206) throw IOException("Server stopped accepting ranges (${c.responseCode})")
                 RandomAccessFile(dest, "rw").use { raf ->
-                    raf.seek(pos)
+                    raf.seek(pos.get(i))
                     c.inputStream.use { input ->
                         val buf = ByteArray(64 * 1024)
-                        while (pos <= end) {
+                        while (pos.get(i) <= end) {
                             coroutineContext.ensureActive()
                             val n = input.read(buf)
                             if (n < 0) break
-                            val take = minOf(n.toLong(), end - pos + 1).toInt()
+                            val take = minOf(n.toLong(), end - pos.get(i) + 1).toInt()
                             raf.write(buf, 0, take)
-                            pos += take
+                            pos.addAndGet(i, take.toLong()) // the saved position is never ahead of the written data
                             done.addAndGet(take.toLong())
                         }
                     }
                 }
                 c.disconnect()
-                if (pos <= end) throw IOException("Connection closed early")
+                if (pos.get(i) <= end) throw IOException("Connection closed early")
             } catch (e: IOException) {
                 if (++attempt > RETRIES) throw e
                 delay(1000L * attempt) // back off, then resume from where this part stopped
@@ -145,12 +173,12 @@ object DirectDownloader {
         }
     }
 
-    private suspend fun downloadSingle(url: String, dest: File, done: AtomicLong) {
+    private suspend fun downloadSingle(url: String, dest: File, headers: Map<String, String>, done: AtomicLong) {
         var attempt = 0
         while (true) {
             try {
                 val already = if (dest.exists()) dest.length() else 0L
-                val c = Detector.open(url, "GET")
+                val c = Detector.open(url, "GET", headers)
                 if (already > 0) c.setRequestProperty("Range", "bytes=$already-")
                 val code = c.responseCode
                 if (code !in 200..299) throw IOException("HTTP error $code")
@@ -178,26 +206,17 @@ object DirectDownloader {
     }
 }
 
-/** Video / MP3 downloads from YouTube, TikTok, Instagram, Facebook, X and 1000+ other sites via yt-dlp. */
+/**
+ * Video / MP3 downloads from TikTok, Instagram, Facebook, X, Vimeo and 1000+ other sites via yt-dlp,
+ * plus HLS (.m3u8) / DASH (.mpd) streams found by the media sniffer (merged into one .mp4 with FFmpeg).
+ * YouTube is not supported: blocked links are refused and yt-dlp's YouTube extractors are switched off.
+ */
 object MediaDownloader {
     private val SPEED = Regex("""at\s+~?\s*([\d.]+\s*[KMG]?i?B/s)""")
     private val DEST = Regex("""Destination:\s+(.+)$""")
 
-    /**
-     * YouTube often blocks one "player client" with "Please sign in" / "not a bot".
-     * We try several clients one after another before giving up.
-     */
-    private val YOUTUBE_CLIENT_ATTEMPTS = listOf(
-        null,                                                  // yt-dlp default
-        "youtube:player_client=android_vr,tv_simply,ios",      // app clients, usually no sign-in check
-        "youtube:player_client=mweb,web_safari,tv",            // mobile web / TV
-        "youtube:player_client=web_embedded,tv_embedded",      // embedded player
-    )
-
-    private fun isBlocked(msg: String) = listOf(
-        "sign in", "not a bot", "login_required", "http error 403", "requested format is not available",
-        "failed to extract any player response", "precondition check failed", "page needs to be reloaded",
-    ).any { msg.contains(it, ignoreCase = true) }
+    /** Every extractor except YouTube's. */
+    private const val EXTRACTORS = "default,-youtube.*"
 
     suspend fun download(
         context: Context,
@@ -205,51 +224,48 @@ object MediaDownloader {
         url: String,
         mode: Mode,
         dir: File,
+        headers: Map<String, String> = emptyMap(),
+        maxHeight: Int = 0,
+        fileTitle: String? = null,
         onProgress: (percent: Float, speed: String, title: String?) -> Unit,
     ): File = withContext(Dispatchers.IO) {
+        if (Blocklist.isBlocked(url)) throw IOException(Blocklist.MESSAGE)
         Engine.ensureReady(context)
         // Make sure we use a fresh yt-dlp (the one inside the APK is old)
         Engine.autoUpdateIfNeeded(context)
-
-        val isYoutube = Detector.isYoutube(url)
-        val attempts = if (isYoutube) YOUTUBE_CLIENT_ATTEMPTS else listOf(null)
-        var lastError: Throwable? = null
-
-        for ((i, extractorArgs) in attempts.withIndex()) {
-            coroutineContext.ensureActive()
-            dir.listFiles()?.forEach { it.deleteRecursively() }
-            try {
-                runOnce(context, id, url, mode, dir, extractorArgs, isYoutube, onProgress)
-                return@withContext dir.listFiles()
-                    ?.filter { it.isFile && !it.name.endsWith(".part") && !it.name.endsWith(".ytdl") && !it.name.contains(".temp.") }
-                    ?.maxByOrNull { it.length() }
-                    ?: throw IOException("Nothing was downloaded")
-            } catch (e: Throwable) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                lastError = e
-                val msg = e.message ?: ""
-                if (!isYoutube || !isBlocked(msg) || i == attempts.lastIndex) break
-                onProgress(-1f, "Retrying (${i + 2}/${attempts.size})…", null)
-                // First failure: force an engine update right away, YouTube may have changed
-                if (i == 0) runCatching { Engine.update(context) }
+        coroutineContext.ensureActive()
+        // Partial files of a paused night download are kept on purpose: yt-dlp continues them.
+        runOnce(context, id, url, mode, dir, headers, maxHeight, fileTitle, onProgress)
+        dir.listFiles()
+            ?.filter {
+                it.isFile && !it.name.endsWith(".part") && !it.name.endsWith(".ytdl") &&
+                    !it.name.contains(".temp.") && !it.name.endsWith(".parts")
             }
-        }
-        throw lastError ?: IOException("Download failed")
+            ?.maxByOrNull { it.length() }
+            ?: throw IOException("Nothing was downloaded")
     }
 
     private fun runOnce(
         context: Context, id: String, url: String, mode: Mode, dir: File,
-        extractorArgs: String?, isYoutube: Boolean,
+        headers: Map<String, String>, maxHeight: Int, fileTitle: String?,
         onProgress: (percent: Float, speed: String, title: String?) -> Unit,
     ) {
         val req = YoutubeDLRequest(url).apply {
-            addOption("--no-playlist")          // a YouTube "Mix" link downloads just this song
+            addOption("--use-extractors", EXTRACTORS)
+            addOption("--no-playlist")
             addOption("--no-mtime")
             addOption("--windows-filenames")
             addOption("--no-cache-dir")
             addOption("-N", "4")                // 4 fragments in parallel = faster
-            addOption("-o", "${dir.absolutePath}/%(title).120B.%(ext)s")
-            if (extractorArgs != null) addOption("--extractor-args", extractorArgs)
+            // Streams found by the sniffer are named after the page title (their own name is often "master")
+            val name = fileTitle?.let { Storage.sanitize(it).take(120).replace("%", "%%") }
+            addOption("-o", if (name != null) "${dir.absolutePath}/$name.%(ext)s" else "${dir.absolutePath}/%(title).120B.%(ext)s")
+            if (headers.isNotEmpty()) {
+                // Files found on a web page: same Referer, browser and cookies as the page
+                headers["Referer"]?.let { addOption("--referer", it) }
+                addOption("--user-agent", Detector.USER_AGENT)
+                headers["Cookie"]?.let { addOption("--add-header", "Cookie:$it") }
+            }
             if (mode == Mode.AUDIO_MP3) {
                 addOption("-f", "ba/b")
                 addOption("-x")
@@ -259,7 +275,7 @@ object MediaDownloader {
                 addOption("--embed-metadata")
                 addOption("--parse-metadata", "%(title)s:%(meta_title)s")
             } else {
-                val h = Settings.videoQuality(context)
+                val h = if (maxHeight > 0) maxHeight else Settings.videoQuality(context)
                 val f = if (h <= 0) {
                     "bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b"
                 } else {

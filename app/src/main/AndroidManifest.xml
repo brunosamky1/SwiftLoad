@@ -9,6 +9,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Download scheduler: lets scheduled downloads start by themselves at night (asked once, optional) -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Android 9/10: save into Download and let the Junk Cleaner read/delete files -->
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
@@ -83,6 +85,11 @@
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
             android:exported="false"
             android:theme="@style/Theme.SwiftLoad.Player" />
+
+        <!-- Queue: drag to reorder waiting / scheduled downloads -->
+        <activity
+            android:name=".QueueActivity"
+            android:exported="false" />
 
         <!-- Junk Cleaner -->
         <activity

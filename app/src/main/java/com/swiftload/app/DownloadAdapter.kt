@@ -50,7 +50,7 @@ class DownloadRowVH(v: View) : RecyclerView.ViewHolder(v) {
         duration.text = formatDuration(item.durationMs)
         duration.visibility = if (isVideo && item.durationMs > 0) View.VISIBLE else View.GONE
 
-        val url = item.thumbnailUrl
+        val url = item.thumbnailUrl?.takeUnless { Blocklist.isBlocked(it) } // no YouTube images
         // The list refreshes several times a second while downloading: don't reload the same picture.
         if (url != null && url == thumb.tag) return
         thumb.tag = url
@@ -101,13 +101,29 @@ class DownloadAdapter(
 
     override fun onBindViewHolder(h: DownloadRowVH, position: Int) {
         val it = getItem(position)
-        val ctx = h.itemView.context
-        h.bindThumb(it)
-        h.title.text = it.title
-        val size = Storage.formatSize(it.sizeBytes)
-        val kind = when (it.mode) { Mode.AUDIO_MP3 -> "MP3"; Mode.VIDEO -> "Video"; Mode.FILE -> it.category.label }
+        h.bindStatus(it)
+        h.action.setOnClickListener { _ -> onAction(it) }
+        h.itemView.setOnClickListener { _ -> if (it.status == Status.DONE) onAction(it) else onLongPress(it) }
+        h.itemView.setOnLongClickListener { _ -> onLongPress(it); true }
+    }
+}
 
+/** Thumbnail, title, progress and status text of a download row (Download tab and Queue screen). */
+fun DownloadRowVH.bindStatus(it: DownloadItem) {
+    val h = this
+    val ctx = h.itemView.context
+    h.bindThumb(it)
+    h.title.text = it.title
+    val size = Storage.formatSize(it.sizeBytes)
+    val kind = when (it.mode) { Mode.AUDIO_MP3 -> "MP3"; Mode.VIDEO -> "Video"; Mode.FILE -> it.category.label }
+    run {
         when (it.status) {
+            Status.SCHEDULED -> {
+                h.progress.visibility = View.GONE
+                h.meta.text = "🕒 Scheduled · ${Scheduler.label(it)}"
+                h.meta.setTextColor(ContextCompat.getColor(ctx, R.color.brand))
+                h.action.setImageResource(android.R.drawable.ic_lock_idle_alarm)
+            }
             Status.QUEUED -> {
                 h.progress.visibility = View.VISIBLE
                 h.progress.isIndeterminate = true
@@ -150,9 +166,6 @@ class DownloadAdapter(
                 h.action.setImageResource(android.R.drawable.ic_menu_rotate)
             }
         }
-        h.action.setOnClickListener { _ -> onAction(it) }
-        h.itemView.setOnClickListener { _ -> if (it.status == Status.DONE) onAction(it) else onLongPress(it) }
-        h.itemView.setOnLongClickListener { _ -> onLongPress(it); true }
     }
 }
 
@@ -163,12 +176,37 @@ object ItemActions {
         when (item.status) {
             Status.RUNNING, Status.QUEUED -> DownloadService.cancel(activity, item.id)
             Status.DONE -> open(activity, item)
-            Status.FAILED, Status.CANCELLED -> DownloadService.start(activity, item.id)
+            Status.FAILED, Status.CANCELLED -> retry(activity, item)
+            Status.SCHEDULED -> showMenu(activity, item)
+        }
+    }
+
+    private fun retry(activity: Activity, item: DownloadItem) {
+        if (Blocklist.isBlocked(item.url)) { toast(activity, Blocklist.MESSAGE); return }
+        DownloadStore.update(item.id, persist = true) { it.copy(scheduleType = ScheduleType.NONE, scheduledAt = 0) }
+        DownloadService.start(activity, item.id)
+    }
+
+    private fun later(activity: Activity, item: DownloadItem) {
+        val a = activity as? androidx.appcompat.app.AppCompatActivity ?: return
+        if (Blocklist.isBlocked(item.url)) { toast(activity, Blocklist.MESSAGE); return }
+        LaterPicker.show(a) { type, at ->
+            Scheduler.schedule(activity, item.id, type, at)
+            DownloadStore.get(item.id)?.let { toast(activity, "Scheduled · ${Scheduler.label(it)}") }
         }
     }
 
     fun showMenu(activity: Activity, item: DownloadItem) {
         val options = mutableListOf<Pair<String, () -> Unit>>()
+        if (item.status == Status.SCHEDULED) {
+            options += "Start now" to { Scheduler.startNow(activity, item.id) }
+            options += "Change time" to { later(activity, item) }
+            options += "Cancel" to { Scheduler.cancel(activity, item.id) }
+        }
+        if (item.status == Status.QUEUED || item.status == Status.FAILED || item.status == Status.CANCELLED) {
+            // A queued item simply becomes SCHEDULED: the queue only starts QUEUED items
+            options += "Download later…" to { later(activity, item) }
+        }
         if (item.status == Status.DONE) {
             options += "Open" to { open(activity, item) }
             options += "Open with other app" to { openWith(activity, item) }
@@ -180,7 +218,7 @@ object ItemActions {
             options += "Cancel download" to { DownloadService.cancel(activity, item.id) }
         }
         if (item.status == Status.FAILED || item.status == Status.CANCELLED || item.status == Status.DONE) {
-            options += "Download again" to { DownloadService.start(activity, item.id) }
+            options += "Download again" to { retry(activity, item) }
         }
         options += "Copy link" to {
             activity.getSystemService(ClipboardManager::class.java)
@@ -190,6 +228,7 @@ object ItemActions {
         }
         options += "Remove from list" to {
             if (item.status == Status.RUNNING || item.status == Status.QUEUED) DownloadService.cancel(activity, item.id)
+            if (item.status == Status.SCHEDULED) Scheduler.cancel(activity, item.id)
             DownloadStore.remove(item.id)
         }
         MaterialAlertDialogBuilder(activity)
