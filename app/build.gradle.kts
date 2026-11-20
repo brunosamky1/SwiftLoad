@@ -13,8 +13,8 @@ android {
         applicationId = "com.swiftload.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 4
-        versionName = "2.0.0"
+        versionCode = 5
+        versionName = "2.1.0"
     }
 
     // One APK per phone CPU type keeps the file small (yt-dlp + Python + FFmpeg are bundled).
@@ -73,6 +73,7 @@ dependencies {
 
     // Thumbnails in the download list / share pop-up
     implementation("io.coil-kt:coil:2.7.0")
+    implementation("io.coil-kt:coil-video:2.7.0") // video frames in the Junk Cleaner lists
 
     // Tabs are fragments inside one MainActivity
     implementation("androidx.fragment:fragment-ktx:1.8.5")

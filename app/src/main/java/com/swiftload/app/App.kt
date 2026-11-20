@@ -7,9 +7,18 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.io.File
+import coil.ImageLoader
+import coil.ImageLoaderFactory
+import coil.decode.VideoFrameDecoder
 
-class App : Application() {
+class App : Application(), ImageLoaderFactory {
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /** Coil can also show a frame of a video file (Junk Cleaner lists). */
+    override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
+        .components { add(VideoFrameDecoder.Factory()) }
+        .crossfade(true)
+        .build()
 
     override fun onCreate() {
         super.onCreate()

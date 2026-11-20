@@ -16,7 +16,9 @@ import java.io.File
  * Download/SwiftLoad/<Category>/ folder so it shows up in Files, Gallery and music players.
  */
 object Storage {
-    const val ROOT = "SwiftLoad"
+    const val ROOT = "VidSaver"
+    /** Folder used before the rename (v2.0 and older). */
+    const val OLD_ROOT = "SwiftLoad"
 
     fun tempDir(context: Context, id: String): File =
         File(context.getExternalFilesDir(null) ?: context.filesDir, "tmp/$id").apply { mkdirs() }

@@ -97,7 +97,7 @@ class DownloadService : Service() {
     private fun goForeground() {
         val n = NotificationCompat.Builder(this, CHANNEL_PROGRESS)
             .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentTitle("SwiftLoad")
+            .setContentTitle(getString(R.string.app_name))
             .setContentText(if (jobs.isEmpty()) "Starting download…" else "Downloading ${jobs.size} file(s)")
             .setContentIntent(openAppIntent())
             .setOngoing(true)

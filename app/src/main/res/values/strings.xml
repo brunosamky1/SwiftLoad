@@ -1,6 +1,7 @@
 <resources>
-    <string name="app_name">SwiftLoad</string>
-    <string name="share_label">Download with SwiftLoad</string>
+    <string name="app_name">VidSaver</string>
+    <string name="app_full_title">VidSaver – Video &amp; MP3 Downloader</string>
+    <string name="share_label">Download with VidSaver</string>
     <string name="url_hint">Paste a link or search YouTube</string>
     <string name="music_hint">Search songs, artists…</string>
     <string name="paste">Paste</string>
@@ -11,11 +12,11 @@
     <string name="clear_finished">Clear finished downloads</string>
     <string name="media_action">When a video link is shared</string>
     <string name="video_quality">Video quality</string>
-    <string name="search_empty">Paste a link from YouTube, TikTok, Instagram, Facebook… or type words to search YouTube.\n\nTip: in any app tap Share → SwiftLoad.</string>
+    <string name="search_empty">Paste a link from YouTube, TikTok, Instagram, Facebook… or type words to search YouTube.\n\nTip: in any app tap Share → VidSaver.</string>
     <string name="music_empty">Search for a song or artist.\nResults download as MP3 by default.</string>
     <string name="library_empty_videos">No videos yet.\nDownloaded videos appear here.</string>
     <string name="library_empty_music">No music yet.\nDownload a song as MP3 and it appears here.</string>
     <string name="library_empty_files">No files yet.\nPDFs, APKs, ZIPs and other files appear here.</string>
-    <string name="how_to_use">1. Copy or share a link from YouTube, TikTok, Instagram, Facebook, X or any website → Share → SwiftLoad.\n\n2. Or paste a link in the Download tab and tap Go.\n\n3. Or type words (e.g. a song name) to search YouTube, then tap MP4 or MP3.\n\n4. YouTube and More open sites inside SwiftLoad: open a video and tap the orange Download button.\n\n5. Finished downloads are in the Play tab and in your phone\'s Download/SwiftLoad folder.\n\nPlease download only content you own or have permission to download.</string>
-    <string name="licenses">SwiftLoad uses these open-source projects:\n\n• yt-dlp — The Unlicense\n• youtubedl-android — GPL-3.0\n• FFmpeg — LGPL-2.1+ / GPL\n• Python — PSF License\n• AndroidX Media3 (ExoPlayer) — Apache-2.0\n• AndroidX, Material Components — Apache-2.0\n• Coil — Apache-2.0\n• Kotlin, kotlinx.coroutines — Apache-2.0</string>
+    <string name="how_to_use">1. Copy or share a link from YouTube, TikTok, Instagram, Facebook, X or any website → Share → VidSaver.\n\n2. Or paste a link in the Download tab and tap Go.\n\n3. Or type words (e.g. a song name) to search YouTube, then tap MP4 or MP3.\n\n4. YouTube and More open sites inside VidSaver: open a video and tap the orange Download button.\n\n5. Finished downloads are in the Play tab and in your phone\'s Download/VidSaver folder.\n\nPlease download only content you own or have permission to download.</string>
+    <string name="licenses">VidSaver uses these open-source projects:\n\n• yt-dlp — The Unlicense\n• youtubedl-android — GPL-3.0\n• FFmpeg — LGPL-2.1+ / GPL\n• Python — PSF License\n• AndroidX Media3 (ExoPlayer) — Apache-2.0\n• AndroidX, Material Components — Apache-2.0\n• Coil — Apache-2.0\n• Kotlin, kotlinx.coroutines — Apache-2.0</string>
 </resources>

@@ -107,7 +107,7 @@ class BrowserActivity : AppCompatActivity() {
         // Files the page wants to download (PDF, APK, ZIP, MP3 …) -> SwiftLoad's downloader
         web.setDownloadListener { url, _, contentDisposition, mimetype, contentLength ->
             if (!url.startsWith("http")) {
-                toast("This download can't be saved by SwiftLoad")
+                toast("This download can't be saved by VidSaver")
                 return@setDownloadListener
             }
             val name = URLUtil.guessFileName(url, contentDisposition, mimetype)

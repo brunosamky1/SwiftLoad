@@ -2,6 +2,7 @@ package com.swiftload.app
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -42,14 +43,21 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
             row("🔔", "Notification settings", "Sounds, pop-ups and progress notifications") { openNotificationSettings() }
             themeSummary = row("🎨", "Theme", themeText()) { chooseTheme() }
         }
+        section("Phone clean") {
+            cleanerSummary = row("🧽", "Junk Cleaner", cleanerText()) {
+                startActivity(Intent(requireContext(), CleanerActivity::class.java))
+            }
+            row("🗂️", "Clear all apps cache", "Android asks you to confirm") { clearAllAppsCache() }
+            row("📊", "Storage overview", "Used / free space and what uses it") { storageOverview() }
+        }
         section("Tools") {
             row("🔄", getString(R.string.update_engine), "Get the newest yt-dlp so sites keep working") { updateEngine() }
-            row("🧹", getString(R.string.clear_finished), "Removes finished items from SwiftLoad's lists") { clearFinished() }
+            row("🧹", getString(R.string.clear_finished), "Removes finished items from VidSaver's lists") { clearFinished() }
             cacheSummary = row("🖼️", "Clear thumbnail cache", "Calculating…") { clearThumbnails() }
         }
         section("Info") {
             row("❓", "How to use", null) { info("How to use", getString(R.string.how_to_use)) }
-            row("📤", "Share SwiftLoad", "Tell your friends") { shareApp() }
+            row("📤", "Share VidSaver", "Tell your friends") { shareApp() }
             row("✉️", "Feedback", "Ideas, problems, questions") { feedback() }
             row("ℹ️", "About", "Version ${versionName()}") { about() }
         }
@@ -58,7 +66,115 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
 
     override fun onHiddenChanged(hidden: Boolean) {
         super.onHiddenChanged(hidden)
-        if (!hidden && view != null) refreshCacheSize()
+        if (!hidden && view != null) { refreshCacheSize(); cleanerSummary?.update(cleanerText()) }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        cleanerSummary?.update(cleanerText())
+    }
+
+    // ---------------------------------------------------------------- Phone clean
+
+    private var cleanerSummary: TextView? = null
+
+    private fun cleanerText(): String {
+        val total = Settings.cleanedTotal(requireContext())
+        return if (total > 0) "Cleaned so far: ${Storage.formatSize(total)}" else "Find thumbnails, old APKs, temp, large & duplicate files"
+    }
+
+    private val clearCacheLauncher =
+        registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { res ->
+            toast(if (res.resultCode == android.app.Activity.RESULT_OK) "Android cleared the apps' cache" else "Not cleared")
+        }
+
+    private fun clearAllAppsCache() {
+        val c = requireContext()
+        if (Build.VERSION.SDK_INT < 30) {
+            MaterialAlertDialogBuilder(c)
+                .setTitle("Clear all apps cache")
+                .setMessage("On this Android version apps can't clear other apps' cache. Open Storage settings to clear cache yourself.")
+                .setPositiveButton("Open Storage settings") { _, _ ->
+                    runCatching { startActivity(Intent(android.provider.Settings.ACTION_INTERNAL_STORAGE_SETTINGS)) }
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+            return
+        }
+        if (!CleanerActivity.hasFullAccess(c)) {
+            MaterialAlertDialogBuilder(c)
+                .setTitle("Permission needed")
+                .setMessage("Android only lets an app clear all apps' cache when it has “All files access”. Allow it, then tap this again.")
+                .setPositiveButton("Allow") { _, _ -> CleanerActivity.openAllFilesAccess(c) }
+                .setNegativeButton("Cancel", null)
+                .show()
+            return
+        }
+        MaterialAlertDialogBuilder(c)
+            .setTitle("Clear all apps cache")
+            .setMessage(
+                "Android will show its own confirmation and then delete the cache of all apps.\n\n" +
+                    "Cache is temporary data: apps keep your accounts and files, but may load a little slower the first time."
+            )
+            .setPositiveButton("Continue") { _, _ ->
+                runCatching { clearCacheLauncher.launch(Intent(android.os.storage.StorageManager.ACTION_CLEAR_APP_CACHE)) }
+                    .onFailure { toast("This phone doesn't support it") }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun storageOverview() {
+        val c = requireContext()
+        val loading = MaterialAlertDialogBuilder(c).setTitle("Storage overview").setMessage("Calculating…").show()
+        viewLifecycleOwner.lifecycleScope.launch {
+            val r = StorageOverview.compute(c.applicationContext, CleanerActivity.hasFullAccess(c))
+            loading.dismiss()
+            val dp = resources.displayMetrics.density
+            val box = LinearLayout(c).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding((24 * dp).toInt(), (8 * dp).toInt(), (24 * dp).toInt(), 0)
+            }
+            val used = (r.total - r.free).coerceAtLeast(0)
+            fun label(text: String, size: Float, bold: Boolean = false, color: Int = R.color.text_primary) =
+                TextView(c).apply {
+                    this.text = text; textSize = size
+                    setTextColor(ContextCompat.getColor(c, color))
+                    if (bold) setTypeface(typeface, android.graphics.Typeface.BOLD)
+                }
+            fun bar(fraction: Double, color: Int) =
+                com.google.android.material.progressindicator.LinearProgressIndicator(c).apply {
+                    max = 1000
+                    progress = (fraction * 1000).toInt().coerceIn(0, 1000)
+                    setIndicatorColor(color)
+                    trackCornerRadius = (4 * dp).toInt()
+                    trackThickness = (8 * dp).toInt()
+                }
+            box.addView(label("${Storage.formatSize(used)} used of ${Storage.formatSize(r.total)}", 18f, bold = true))
+            box.addView(bar(if (r.total > 0) used.toDouble() / r.total else 0.0, ContextCompat.getColor(c, R.color.brand)),
+                LinearLayout.LayoutParams(-1, -2).apply { topMargin = (8 * dp).toInt() })
+            box.addView(label("${Storage.formatSize(r.free)} free", 13f, color = R.color.text_secondary),
+                LinearLayout.LayoutParams(-2, -2).apply { topMargin = (6 * dp).toInt(); bottomMargin = (12 * dp).toInt() })
+            val colors = intArrayOf(0xFFF2A541.toInt(), 0xFF4DABF7.toInt(), 0xFF63E6BE.toInt(), 0xFFB197FC.toInt(), 0xFFFF8787.toInt(), 0xFF8D99AE.toInt())
+            r.parts.forEachIndexed { i, (name, bytes) ->
+                val row = LinearLayout(c).apply { orientation = LinearLayout.HORIZONTAL }
+                row.addView(label(name, 14f), LinearLayout.LayoutParams(0, -2, 1f))
+                row.addView(label(Storage.formatSize(bytes).ifEmpty { "0 B" }, 14f, bold = true))
+                box.addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = (10 * dp).toInt() })
+                box.addView(bar(if (used > 0) bytes.toDouble() / used else 0.0, colors[i % colors.size]),
+                    LinearLayout.LayoutParams(-1, -2).apply { topMargin = (4 * dp).toInt() })
+            }
+            if (r.limited) box.addView(label(
+                "Limited: without “All files access” only files VidSaver can see are counted; the rest is in “Apps, system & other”.",
+                12f, color = R.color.text_secondary,
+            ), LinearLayout.LayoutParams(-1, -2).apply { topMargin = (14 * dp).toInt() })
+            MaterialAlertDialogBuilder(c)
+                .setTitle("Storage overview")
+                .setView(androidx.core.widget.NestedScrollView(c).apply { addView(box) })
+                .setPositiveButton("OK", null)
+                .apply { if (r.limited && Build.VERSION.SDK_INT >= 30) setNeutralButton("Allow access") { _, _ -> CleanerActivity.openAllFilesAccess(c) } }
+                .show()
+        }
     }
 
     // ---------------------------------------------------------------- building the list
@@ -137,7 +253,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
                     }
                     3 -> info(
                         "Download folder",
-                        "Files are saved in your phone's Download/SwiftLoad folder:\n\n" +
+                        "Files are saved in your phone's Download/VidSaver folder:\n\n" +
                             "• Video — videos\n• Music — MP3 and audio\n• Images\n• Documents — PDF, Word …\n" +
                             "• Archives — ZIP, RAR …\n• Apps — APK\n• Other\n\n" +
                             "Open them in the Play tab or with your Files app.",
@@ -197,7 +313,7 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
     private fun clearFinished() {
         MaterialAlertDialogBuilder(requireContext())
             .setTitle(getString(R.string.clear_finished) + "?")
-            .setMessage("Finished, failed and cancelled items are removed from SwiftLoad (also from the Play tab).\n\nYour files stay in Download/SwiftLoad.")
+            .setMessage("Finished, failed and cancelled items are removed from VidSaver (also from the Play tab).\n\nYour files stay in Download/VidSaver.")
             .setPositiveButton("Clear") { _, _ -> DownloadStore.clearFinished(); toast("Cleared") }
             .setNegativeButton("Cancel", null)
             .show()
@@ -238,22 +354,22 @@ class SettingsFragment : Fragment(R.layout.fragment_settings) {
     private fun shareApp() {
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "SwiftLoad")
-            putExtra(Intent.EXTRA_TEXT, "Download videos, music and files fast with SwiftLoad: $WEBSITE")
+            putExtra(Intent.EXTRA_SUBJECT, "VidSaver")
+            putExtra(Intent.EXTRA_TEXT, "Download videos, music and files fast with VidSaver: $WEBSITE")
         }
-        startActivity(Intent.createChooser(send, "Share SwiftLoad"))
+        startActivity(Intent.createChooser(send, "Share VidSaver"))
     }
 
     private fun feedback() {
         val i = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$FEEDBACK_EMAIL")).apply {
-            putExtra(Intent.EXTRA_SUBJECT, "SwiftLoad feedback (v${versionName()})")
+            putExtra(Intent.EXTRA_SUBJECT, "VidSaver feedback (v${versionName()})")
         }
         runCatching { startActivity(i) }.onFailure { toast("No e-mail app found") }
     }
 
     private fun about() {
         MaterialAlertDialogBuilder(requireContext())
-            .setTitle("SwiftLoad ${versionName()}")
+            .setTitle(getString(R.string.app_full_title))
             .setMessage(
                 "Fast downloader for videos, music and files.\n\n" +
                     "Download only content you own or have permission to download.\n\n$WEBSITE"

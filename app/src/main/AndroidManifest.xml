@@ -9,11 +9,22 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <!-- Only needed on Android 9 and older to save into the public Download folder -->
+    <!-- Android 9/10: save into Download and let the Junk Cleaner read/delete files -->
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="28"
+        android:maxSdkVersion="29"
         tools:ignore="ScopedStorage" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <!-- Android 11+: Junk Cleaner full scan ("All files access"); asked with an explanation, optional -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+    <!-- Junk Cleaner: tell whether an APK file's app is already installed -->
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
 
     <application
         android:name=".App"
@@ -72,6 +83,11 @@
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
             android:exported="false"
             android:theme="@style/Theme.SwiftLoad.Player" />
+
+        <!-- Junk Cleaner -->
+        <activity
+            android:name=".CleanerActivity"
+            android:exported="false" />
 
         <!-- Background music with notification controls -->
         <service

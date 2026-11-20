@@ -1,14 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- VidSaver icon (our own design): a white down-arrow with a play triangle cut into it, above a save tray.
+     108dp adaptive-icon canvas; everything stays inside the 66dp safe zone (21..87). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Down arrow -->
+    <!-- Arrow (shaft + head) with the play triangle as a hole -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M49,30h10v24h11L54,72L38,54h11z" />
+        android:fillType="evenOdd"
+        android:pathData="M43,27h22v23h12L54,73L31,50h12z M49.5,32.5L49.5,45.5L60,39z" />
     <!-- Tray -->
     <path
-        android:fillColor="#F2A541"
-        android:pathData="M34,74h40v6H34z" />
+        android:fillColor="#FFFFFF"
+        android:pathData="M33,77h42a3,3 0,0 1,3 3v0a3,3 0,0 1,-3 3H33a3,3 0,0 1,-3 -3v0a3,3 0,0 1,3 -3z" />
 </vector>

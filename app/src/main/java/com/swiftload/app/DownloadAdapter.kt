@@ -264,7 +264,7 @@ object ItemActions {
         if (ext.isEmpty() && item.mode == Mode.FILE) ext = item.title.substringAfterLast('.', "")
         val title = if (item.mode == Mode.FILE && ext.isNotEmpty()) "$clean.$ext" else clean
         DownloadStore.update(item.id, persist = true) { it.copy(title = title) }
-        toast(activity, if (renamedFile) "Renamed" else "Renamed in SwiftLoad (the file name could not be changed)")
+        toast(activity, if (renamedFile) "Renamed" else "Renamed in VidSaver (the file name could not be changed)")
     }
 
     private fun askDelete(activity: Activity, item: DownloadItem) {

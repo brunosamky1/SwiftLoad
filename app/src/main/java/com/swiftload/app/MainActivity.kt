@@ -7,6 +7,10 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
+import androidx.lifecycle.lifecycleScope
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import kotlinx.coroutines.launch
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -48,6 +52,34 @@ class MainActivity : AppCompatActivity() {
         if (intent?.getBooleanExtra(EXTRA_OPEN_PLAY, false) == true) bottomNav.selectedItemId = R.id.nav_play
 
         askPermissions()
+        offerFolderMove()
+    }
+
+    /** Once after the rename: ask before moving earlier downloads from Download/SwiftLoad to Download/VidSaver. */
+    private fun offerFolderMove() {
+        if (Settings.folderMoveAsked(this)) return
+        lifecycleScope.launch {
+            val old = FolderMove.oldFiles(applicationContext)
+            if (old.isEmpty()) { Settings.setFolderMoveAsked(this@MainActivity); return@launch }
+            if (isFinishing) return@launch
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle("SwiftLoad is now VidSaver")
+                .setMessage(
+                    "New downloads are saved in Download/${Storage.ROOT}.\n\n" +
+                        "Move your ${old.size} earlier download(s) from Download/${Storage.OLD_ROOT} there too?\n\n" +
+                        "Either way they stay in the Play tab."
+                )
+                .setPositiveButton("Move") { _, _ ->
+                    Settings.setFolderMoveAsked(this@MainActivity)
+                    lifecycleScope.launch {
+                        val moved = FolderMove.move(applicationContext, old)
+                        Toast.makeText(this@MainActivity, "Moved $moved of ${old.size} file(s) to Download/${Storage.ROOT}", Toast.LENGTH_LONG).show()
+                    }
+                }
+                .setNegativeButton("Keep them there") { _, _ -> Settings.setFolderMoveAsked(this@MainActivity) }
+                .setCancelable(false)
+                .show()
+        }
     }
 
     override fun onNewIntent(intent: Intent) {

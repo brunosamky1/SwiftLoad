@@ -158,6 +158,18 @@ object Settings {
         }
     )
 
+    /** Junk Cleaner: was the "All files access" explanation shown already? */
+    fun cleanerAsked(c: Context) = prefs(c).getBoolean("cleanerAsked", false)
+    fun setCleanerAsked(c: Context) = prefs(c).edit().putBoolean("cleanerAsked", true).apply()
+
+    /** Junk Cleaner: total bytes really freed so far ("Cleaned so far"). */
+    fun cleanedTotal(c: Context) = prefs(c).getLong("cleanedTotal", 0)
+    fun addCleaned(c: Context, bytes: Long) = prefs(c).edit().putLong("cleanedTotal", cleanedTotal(c) + bytes.coerceAtLeast(0)).apply()
+
+    /** Rename to VidSaver: was the user asked about moving Download/SwiftLoad -> Download/VidSaver? */
+    fun folderMoveAsked(c: Context) = prefs(c).getBoolean("folderMoveAsked", false)
+    fun setFolderMoveAsked(c: Context) = prefs(c).edit().putBoolean("folderMoveAsked", true).apply()
+
     fun lastClipboard(c: Context) = prefs(c).getString("lastClip", "") ?: ""
     fun setLastClipboard(c: Context, v: String) = prefs(c).edit().putString("lastClip", v).apply()
 }
