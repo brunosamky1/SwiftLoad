@@ -13,8 +13,8 @@ android {
         applicationId = "com.swiftload.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
     }
 
     // One APK per phone CPU type keeps the file small (yt-dlp + Python + FFmpeg are bundled).
@@ -28,13 +28,21 @@ android {
         }
     }
 
+    signingConfigs {
+        create("swiftload") {
+            storeFile = file("swiftload.jks")
+            storePassword = "swiftload123"
+            keyAlias = "swiftload"
+            keyPassword = "swiftload123"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Signed with the debug key so the APK installs straight away.
-            // Replace with your own keystore before publishing on Play Store.
-            signingConfig = signingConfigs.getByName("debug")
+            // Fixed key so new versions install as updates (no uninstall needed).
+            signingConfig = signingConfigs.getByName("swiftload")
         }
     }
 

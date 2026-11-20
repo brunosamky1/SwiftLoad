@@ -34,14 +34,54 @@ object Engine {
         }
     }
 
-    /** Downloads the newest yt-dlp so sites like YouTube keep working after they change. */
+    private val updateMutex = Mutex()
+
+    /**
+     * Downloads the newest yt-dlp (nightly = fastest YouTube fixes) so sites keep working after they change.
+     * The yt-dlp bundled inside the APK is old, so this matters a lot for YouTube.
+     */
     suspend fun update(context: Context): String = withContext(Dispatchers.IO) {
         ensureReady(context)
-        val status = YoutubeDL.getInstance().updateYoutubeDL(context.applicationContext, YoutubeDL.UpdateChannel.STABLE)
-        when (status?.name) {
-            "ALREADY_UP_TO_DATE" -> "Engine is already up to date"
-            else -> "Engine updated to the latest version"
+        updateMutex.withLock {
+            val status = YoutubeDL.getInstance().updateYoutubeDL(context.applicationContext, YoutubeDL.UpdateChannel.NIGHTLY)
+            prefs(context).edit().putLong("lastUpdate", System.currentTimeMillis()).apply()
+            when (status?.name) {
+                "ALREADY_UP_TO_DATE" -> "Engine is already up to date"
+                else -> "Engine updated to the latest version"
+            }
         }
+    }
+
+    /** Updates automatically at most once every 12 hours; errors (e.g. no internet) are ignored. */
+    suspend fun autoUpdateIfNeeded(context: Context) {
+        val last = prefs(context).getLong("lastUpdate", 0)
+        if (System.currentTimeMillis() - last < 12 * 3600_000L) return
+        runCatching { update(context) }
+    }
+
+    private fun prefs(c: Context) = c.getSharedPreferences("engine", Context.MODE_PRIVATE)
+}
+
+/** YouTube login cookies (from the in-app "Sign in to YouTube" screen), in yt-dlp's cookies.txt format. */
+object YoutubeCookies {
+    fun file(context: Context) = File(context.filesDir, "youtube_cookies.txt")
+    fun isSignedIn(context: Context) = file(context).let { it.exists() && it.length() > 0 }
+    fun signOut(context: Context) { file(context).delete() }
+
+    /** Converts "a=1; b=2" (from Android CookieManager) to Netscape cookies.txt lines for .youtube.com and .google.com */
+    fun save(context: Context, youtubeCookies: String?, googleCookies: String?) {
+        val expiry = System.currentTimeMillis() / 1000 + 180L * 24 * 3600
+        val sb = StringBuilder("# Netscape HTTP Cookie File\n")
+        fun add(domain: String, raw: String?) {
+            raw?.split(';')?.map { it.trim() }?.filter { it.contains('=') }?.forEach { kv ->
+                val name = kv.substringBefore('=')
+                val value = kv.substringAfter('=')
+                sb.append("$domain\tTRUE\t/\tTRUE\t$expiry\t$name\t$value\n")
+            }
+        }
+        add(".youtube.com", youtubeCookies)
+        add(".google.com", googleCookies)
+        file(context).writeText(sb.toString())
     }
 }
 
@@ -166,6 +206,22 @@ object MediaDownloader {
     private val SPEED = Regex("""at\s+~?\s*([\d.]+\s*[KMG]?i?B/s)""")
     private val DEST = Regex("""Destination:\s+(.+)$""")
 
+    /**
+     * YouTube often blocks one "player client" with "Please sign in" / "not a bot".
+     * We try several clients one after another before giving up.
+     */
+    private val YOUTUBE_CLIENT_ATTEMPTS = listOf(
+        null,                                                  // yt-dlp default
+        "youtube:player_client=android_vr,tv_simply,ios",      // app clients, usually no sign-in check
+        "youtube:player_client=mweb,web_safari,tv",            // mobile web / TV
+        "youtube:player_client=web_embedded,tv_embedded",      // embedded player
+    )
+
+    private fun isBlocked(msg: String) = listOf(
+        "sign in", "not a bot", "login_required", "http error 403", "requested format is not available",
+        "failed to extract any player response", "precondition check failed", "page needs to be reloaded",
+    ).any { msg.contains(it, ignoreCase = true) }
+
     suspend fun download(
         context: Context,
         id: String,
@@ -175,13 +231,54 @@ object MediaDownloader {
         onProgress: (percent: Float, speed: String, title: String?) -> Unit,
     ): File = withContext(Dispatchers.IO) {
         Engine.ensureReady(context)
+        // Make sure we use a fresh yt-dlp (the one inside the APK is old)
+        Engine.autoUpdateIfNeeded(context)
+
+        val isYoutube = Detector.isYoutube(url)
+        val attempts = if (isYoutube) YOUTUBE_CLIENT_ATTEMPTS else listOf(null)
+        var lastError: Throwable? = null
+
+        for ((i, extractorArgs) in attempts.withIndex()) {
+            coroutineContext.ensureActive()
+            dir.listFiles()?.forEach { it.deleteRecursively() }
+            try {
+                runOnce(context, id, url, mode, dir, extractorArgs, isYoutube, onProgress)
+                return@withContext dir.listFiles()
+                    ?.filter { it.isFile && !it.name.endsWith(".part") && !it.name.endsWith(".ytdl") && !it.name.contains(".temp.") }
+                    ?.maxByOrNull { it.length() }
+                    ?: throw IOException("Nothing was downloaded")
+            } catch (e: Throwable) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                lastError = e
+                val msg = e.message ?: ""
+                if (!isYoutube || !isBlocked(msg) || i == attempts.lastIndex) break
+                onProgress(-1f, "Retrying (${i + 2}/${attempts.size})…", null)
+                // First failure: force an engine update right away, YouTube may have changed
+                if (i == 0) runCatching { Engine.update(context) }
+            }
+        }
+        throw lastError ?: IOException("Download failed")
+    }
+
+    private fun runOnce(
+        context: Context, id: String, url: String, mode: Mode, dir: File,
+        extractorArgs: String?, isYoutube: Boolean,
+        onProgress: (percent: Float, speed: String, title: String?) -> Unit,
+    ) {
         val req = YoutubeDLRequest(url).apply {
             addOption("--no-playlist")          // a YouTube "Mix" link downloads just this song
             addOption("--no-mtime")
             addOption("--windows-filenames")
+            addOption("--no-cache-dir")
             addOption("-N", "4")                // 4 fragments in parallel = faster
             addOption("-o", "${dir.absolutePath}/%(title).120B.%(ext)s")
+            if (extractorArgs != null) addOption("--extractor-args", extractorArgs)
+            // Use the YouTube account the user signed into inside the app (fixes "Please sign in")
+            if (isYoutube && YoutubeCookies.isSignedIn(context)) {
+                addOption("--cookies", YoutubeCookies.file(context).absolutePath)
+            }
             if (mode == Mode.AUDIO_MP3) {
+                addOption("-f", "ba/b")
                 addOption("-x")
                 addOption("--audio-format", "mp3")
                 addOption("--audio-quality", "0")
@@ -191,7 +288,7 @@ object MediaDownloader {
                 val f = if (h <= 0) {
                     "bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b"
                 } else {
-                    "bv*[height<=$h][ext=mp4]+ba[ext=m4a]/bv*[height<=$h]+ba/b[height<=$h]/b"
+                    "bv*[height<=$h][ext=mp4]+ba[ext=m4a]/bv*[height<=$h]+ba/b[height<=$h]/bv*+ba/b"
                 }
                 addOption("-f", f)
                 addOption("--merge-output-format", "mp4")
@@ -206,11 +303,6 @@ object MediaDownloader {
             val speed = SPEED.find(line)?.groupValues?.get(1) ?: ""
             onProgress(progress, speed, title)
         }
-
-        dir.listFiles()
-            ?.filter { it.isFile && !it.name.endsWith(".part") && !it.name.endsWith(".ytdl") && !it.name.contains(".temp.") }
-            ?.maxByOrNull { it.length() }
-            ?: throw IOException("Nothing was downloaded")
     }
 
     fun cancel(id: String) {

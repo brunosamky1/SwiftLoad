@@ -36,6 +36,13 @@ import kotlinx.coroutines.launch
 class MainActivity : AppCompatActivity() {
 
     private lateinit var urlInput: EditText
+    private var toolbar: MaterialToolbar? = null
+
+    override fun onResume() {
+        super.onResume()
+        toolbar?.menu?.findItem(R.id.menu_login)?.title =
+            if (YoutubeCookies.isSignedIn(this)) "YouTube account ✓ (signed in)" else "Sign in to YouTube"
+    }
     private val adapter = DownloadAdapter(::onItemAction, ::onItemLongPress)
 
     private val permissionLauncher =
@@ -49,6 +56,7 @@ class MainActivity : AppCompatActivity() {
         toolbar.inflateMenu(R.menu.main_menu)
         toolbar.overflowIcon?.setTint(Color.WHITE)
         toolbar.setOnMenuItemClickListener { onMenu(it.itemId); true }
+        this.toolbar = toolbar
 
         urlInput = findViewById(R.id.urlInput)
         findViewById<View>(R.id.btnPaste).setOnClickListener {
@@ -174,6 +182,22 @@ class MainActivity : AppCompatActivity() {
 
     private fun onMenu(id: Int) {
         when (id) {
+            R.id.menu_login -> {
+                if (YoutubeCookies.isSignedIn(this)) {
+                    MaterialAlertDialogBuilder(this)
+                        .setTitle("YouTube account")
+                        .setMessage("You are signed in. YouTube downloads use your account.")
+                        .setPositiveButton("Sign out") { _, _ ->
+                            YoutubeCookies.signOut(this)
+                            android.webkit.CookieManager.getInstance().removeAllCookies(null)
+                            toast("Signed out")
+                        }
+                        .setNegativeButton("Close", null)
+                        .show()
+                } else {
+                    startActivity(Intent(this, LoginActivity::class.java))
+                }
+            }
             R.id.menu_media_action -> {
                 val labels = arrayOf("Ask me every time", "Always download video (MP4)", "Always download audio (MP3)")
                 MaterialAlertDialogBuilder(this)

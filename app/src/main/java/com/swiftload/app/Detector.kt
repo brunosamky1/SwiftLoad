@@ -48,6 +48,11 @@ object Detector {
         return m.value.trimEnd('.', ',', ')', ']', '!', '?', ';')
     }
 
+    fun isYoutube(url: String): Boolean {
+        val host = Uri.parse(url).host?.lowercase(Locale.ROOT) ?: return false
+        return host.endsWith("youtube.com") || host == "youtu.be" || host.endsWith("youtube-nocookie.com")
+    }
+
     fun isKnownMediaSite(url: String): Boolean {
         val host = Uri.parse(url).host?.lowercase(Locale.ROOT)?.removePrefix("www.")?.removePrefix("m.") ?: return false
         return MEDIA_HOSTS.any { host == it || host.endsWith(".$it") }

@@ -189,9 +189,11 @@ class DownloadService : Service() {
         val m = (e.message ?: e.javaClass.simpleName).lines().lastOrNull { it.contains("ERROR") } ?: e.message ?: "Unknown error"
         return when {
             m.contains("Unsupported URL", true) -> "This link has no downloadable video or file."
-            m.contains("Private video", true) || m.contains("login", true) -> "This content is private or needs a login."
+            m.contains("sign in", true) || m.contains("not a bot", true) || m.contains("login", true) ->
+                if (YoutubeCookies.isSignedIn(this)) "YouTube blocked this download. Try again in a few minutes."
+                else "YouTube asks to sign in. Open menu ⋮ → Sign in to YouTube, then retry."
+            m.contains("Private video", true) -> "This content is private."
             m.contains("Unable to resolve host", true) || m.contains("UnknownHost", true) -> "No internet connection."
-            m.contains("Sign in to confirm", true) -> "Site is blocking downloads. Try Settings → Update download engine."
             else -> m.removePrefix("ERROR:").trim().take(200)
         }
     }
