@@ -41,6 +41,7 @@ class ShareActivity : AppCompatActivity() {
         val buttons = findViewById<View>(R.id.buttons)
         val btnVideo = findViewById<Button>(R.id.btnVideo)
         val btnMp3 = findViewById<Button>(R.id.btnMp3)
+        val videoTitle = findViewById<TextView>(R.id.videoTitle)
         findViewById<Button>(R.id.btnCancel).setOnClickListener { finish() }
 
         detail.text = url
@@ -50,10 +51,10 @@ class ShareActivity : AppCompatActivity() {
             val r = runCatching { Detector.detect(url) }.getOrElse {
                 Detector.Result(url, true, "", null, -1, Category.VIDEO)
             }
-            spinner.visibility = View.GONE
 
             if (!r.isMediaPage) {
                 // Direct file: download straight away.
+                spinner.visibility = View.GONE
                 DownloadService.enqueue(this@ShareActivity, r.url, r.fileName, Mode.FILE, r.category, r.mime, r.size)
                 val size = Storage.formatSize(r.size).let { if (it.isEmpty()) "" else " • $it" }
                 toast("${r.category.label} detected$size — downloading ${r.fileName}")
@@ -62,23 +63,34 @@ class ShareActivity : AppCompatActivity() {
             }
 
             val site = siteName(r.url)
-            when (Settings.mediaAction(this@ShareActivity)) {
-                1 -> { startMedia(r.url, site, Mode.VIDEO); return@launch }
-                2 -> { startMedia(r.url, site, Mode.AUDIO_MP3); return@launch }
+            status.text = "Getting video info…"
+            val auto = Settings.mediaAction(this@ShareActivity)
+            // Automatic mode waits less, so the download isn't held up by a slow site.
+            val title = Detector.fetchTitle(r.url, if (auto == 0) 8_000 else 5_000)
+            spinner.visibility = View.GONE
+
+            when (auto) {
+                1 -> { startMedia(r.url, site, title, Mode.VIDEO); return@launch }
+                2 -> { startMedia(r.url, site, title, Mode.AUDIO_MP3); return@launch }
             }
             status.text = "$site link detected"
             detail.text = "Choose what to download:\n${r.url}"
+            if (title != null) {
+                videoTitle.text = title
+                videoTitle.visibility = View.VISIBLE
+            }
             buttons.visibility = View.VISIBLE
-            btnVideo.setOnClickListener { startMedia(r.url, site, Mode.VIDEO) }
-            btnMp3.setOnClickListener { startMedia(r.url, site, Mode.AUDIO_MP3) }
+            btnVideo.setOnClickListener { startMedia(r.url, site, title, Mode.VIDEO) }
+            btnMp3.setOnClickListener { startMedia(r.url, site, title, Mode.AUDIO_MP3) }
         }
     }
 
-    private fun startMedia(url: String, site: String, mode: Mode) {
+    private fun startMedia(url: String, site: String, title: String?, mode: Mode) {
         val kind = if (mode == Mode.AUDIO_MP3) "MP3" else "video"
         val cat = if (mode == Mode.AUDIO_MP3) Category.AUDIO else Category.VIDEO
-        DownloadService.enqueue(this, url, "$site $kind", mode, cat)
-        toast("Downloading $kind from $site…")
+        // Without a real title we use a placeholder; DownloadService replaces it once the title is known.
+        DownloadService.enqueue(this, url, title ?: "$site $kind", mode, cat)
+        toast(if (title != null) "Downloading $kind: $title" else "Downloading $kind from $site…")
         finish()
     }
 

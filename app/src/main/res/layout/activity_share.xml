@@ -37,6 +37,19 @@
         android:textColor="@color/text_secondary"
         android:textSize="13sp" />
 
+    <!-- Real video title (e.g. the YouTube video name), shown above the Video/MP3 buttons -->
+    <TextView
+        android:id="@+id/videoTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:ellipsize="end"
+        android:maxLines="3"
+        android:textColor="@color/text_primary"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:visibility="gone" />
+
     <LinearLayout
         android:id="@+id/buttons"
         android:layout_width="match_parent"

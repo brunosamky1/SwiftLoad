@@ -119,6 +119,19 @@ class DownloadService : Service() {
         val dir = Storage.tempDir(this, id)
         DownloadStore.update(id, persist = true) { it.copy(status = Status.RUNNING) }
         notifyProgress(id)
+        if (item.mode != Mode.FILE && Detector.isPlaceholderTitle(item.title)) {
+            // Title is still "YouTube video" etc.: look up the real name in the background.
+            scope.launch {
+                val real = Detector.fetchTitle(item.url) ?: return@launch
+                var changed = false
+                DownloadStore.update(id, persist = true) {
+                    if (it.status == Status.RUNNING && Detector.isPlaceholderTitle(it.title)) {
+                        changed = true; it.copy(title = real)
+                    } else it
+                }
+                if (changed) notifyProgress(id)
+            }
+        }
         try {
             val uri: Uri
             var finalTitle: String
@@ -151,17 +164,19 @@ class DownloadService : Service() {
                         it.copy(
                             progress = if (p >= 0) p.toInt() else it.progress,
                             speed = speed.ifEmpty { it.speed },
-                            title = title ?: it.title,
+                            // yt-dlp's file name is only used while we still have a placeholder title
+                            title = if (title != null && Detector.isPlaceholderTitle(it.title)) cleanName(title) else it.title,
                         )
                     }
                     val now = System.currentTimeMillis()
                     if (now - lastNotify > 700) { lastNotify = now; notifyProgress(id) }
                 }
-                finalTitle = file.name
                 mime = Detector.mimeFromExt(file.extension) ?: if (item.mode == Mode.AUDIO_MP3) "audio/mpeg" else "video/mp4"
                 val cat = if (item.mode == Mode.AUDIO_MP3) Category.AUDIO else Detector.categoryOf(mime, file.name)
                 DownloadStore.update(id) { it.copy(sizeBytes = file.length(), category = cat) }
-                uri = Storage.publish(this, file, finalTitle, mime, cat)
+                uri = Storage.publish(this, file, file.name, mime, cat)
+                // List / notification show the clean saved name, without ".mp4" / ".mp3"
+                finalTitle = file.nameWithoutExtension
             }
             DownloadStore.update(id, persist = true) {
                 it.copy(status = Status.DONE, progress = 100, title = finalTitle, fileUri = uri.toString(), mime = mime, speed = "")
@@ -184,6 +199,9 @@ class DownloadService : Service() {
             dir.deleteRecursively()
         }
     }
+
+    /** "Song Name.f137" (a yt-dlp part file) -> "Song Name" */
+    private fun cleanName(name: String) = name.replace(Regex("""\.f\d+$"""), "").trim()
 
     private fun friendlyError(e: Throwable): String {
         val m = (e.message ?: e.javaClass.simpleName).lines().lastOrNull { it.contains("ERROR") } ?: e.message ?: "Unknown error"
@@ -270,6 +288,7 @@ class DownloadService : Service() {
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setContentTitle("Download complete")
             .setContentText(item.title)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(item.title))
             .setContentIntent(open)
             .setAutoCancel(true)
             .build()

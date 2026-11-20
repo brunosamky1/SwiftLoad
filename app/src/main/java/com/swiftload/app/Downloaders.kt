@@ -282,7 +282,9 @@ object MediaDownloader {
                 addOption("-x")
                 addOption("--audio-format", "mp3")
                 addOption("--audio-quality", "0")
-                addOption("--add-metadata")
+                // Write the song name into the MP3 tags so music players show it
+                addOption("--embed-metadata")
+                addOption("--parse-metadata", "%(title)s:%(meta_title)s")
             } else {
                 val h = Settings.videoQuality(context)
                 val f = if (h <= 0) {

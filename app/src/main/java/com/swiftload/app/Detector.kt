@@ -1,12 +1,20 @@
 package com.swiftload.app
 
 import android.net.Uri
+import android.text.Html
 import android.webkit.MimeTypeMap
 import android.webkit.URLUtil
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
+import java.nio.charset.Charset
 import java.util.Locale
 
 /**
@@ -106,6 +114,90 @@ object Detector {
         val name = URLUtil.guessFileName(finalUrl, disposition, realMime)
         val finalMime = realMime ?: mimeFromExt(name.substringAfterLast('.', "")) ?: "application/octet-stream"
         Result(finalUrl, false, name, finalMime, size, categoryOf(finalMime, name))
+    }
+
+    // ---------------- real video title ----------------
+
+    /** True for the temporary names used until the real title is known ("YouTube video", "TikTok MP3"). */
+    fun isPlaceholderTitle(title: String) = title.endsWith(" video") || title.endsWith(" MP3")
+
+    /**
+     * Finds the real title of a video page (e.g. the YouTube video name) quickly, without yt-dlp.
+     * Never throws; returns null if nothing is found within [timeoutMs].
+     */
+    suspend fun fetchTitle(url: String, timeoutMs: Long = 8_000): String? = try {
+        // Runs on a detached IO job so a stuck network read can't hold the caller past the timeout.
+        val job = CoroutineScope(Dispatchers.IO).async { runCatching { fetchTitleBlocking(url) }.getOrNull() }
+        withTimeoutOrNull(timeoutMs) { job.await() } ?: run { job.cancel(); null }
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Throwable) {
+        null
+    }
+
+    private fun fetchTitleBlocking(url: String): String? {
+        val host = Uri.parse(url).host?.lowercase(Locale.ROOT) ?: return null
+        val enc = URLEncoder.encode(url, "UTF-8")
+        val oembed = when {
+            isYoutube(url) -> "https://www.youtube.com/oembed?url=$enc&format=json"
+            host.endsWith("tiktok.com") -> "https://www.tiktok.com/oembed?url=$enc"
+            host.endsWith("vimeo.com") -> "https://vimeo.com/api/oembed.json?url=$enc"
+            else -> null
+        }
+        if (oembed != null) {
+            runCatching { clean(JSONObject(readText(oembed, 64 * 1024)).optString("title")) }
+                .getOrNull()?.let { return it }
+        }
+        // Any other site (or oEmbed failed): read the start of the HTML page.
+        val html = readText(url, 200 * 1024)
+        return clean(ogTitle(html)) ?: clean(htmlTitle(html))
+    }
+
+    private val META_TAG = Regex("""<meta\b[^>]*>""", RegexOption.IGNORE_CASE)
+    private val OG_TITLE_ATTR = Regex("""(?:property|name)\s*=\s*["']og:title["']""", RegexOption.IGNORE_CASE)
+    private val CONTENT_ATTR = Regex("""content\s*=\s*(?:"([^"]*)"|'([^']*)')""", RegexOption.IGNORE_CASE)
+    private val TITLE_TAG = Regex("""<title[^>]*>(.*?)</title>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+    private val CHARSET = Regex("""charset=([\w-]+)""", RegexOption.IGNORE_CASE)
+    private val SPACES = Regex("""\s+""")
+
+    private fun ogTitle(html: String): String? = META_TAG.findAll(html)
+        .map { it.value }
+        .firstOrNull { OG_TITLE_ATTR.containsMatchIn(it) }
+        ?.let { tag -> CONTENT_ATTR.find(tag)?.let { m -> m.groupValues[1].ifEmpty { m.groupValues[2] } } }
+
+    private fun htmlTitle(html: String): String? = TITLE_TAG.find(html)?.groupValues?.get(1)
+
+    /** Decodes HTML entities (&amp; &#39; …) and collapses spaces; null if empty. */
+    private fun clean(raw: String?): String? {
+        if (raw.isNullOrBlank()) return null
+        return Html.fromHtml(raw, Html.FROM_HTML_MODE_LEGACY).toString().replace(SPACES, " ").trim().ifEmpty { null }
+    }
+
+    /** Downloads at most [limit] bytes of a page as text. */
+    private fun readText(url: String, limit: Int): String {
+        val c = open(url, "GET").apply {
+            connectTimeout = 6_000
+            readTimeout = 6_000
+            setRequestProperty("Accept", "text/html,application/json;q=0.9,*/*;q=0.8")
+            setRequestProperty("Accept-Language", "en-US,en;q=0.9")
+        }
+        try {
+            if (c.responseCode !in 200..299) throw java.io.IOException("HTTP ${c.responseCode}")
+            val charset = c.contentType?.let { CHARSET.find(it)?.groupValues?.get(1) }
+                ?.let { runCatching { Charset.forName(it) }.getOrNull() } ?: Charsets.UTF_8
+            val out = ByteArrayOutputStream()
+            c.inputStream.use { input ->
+                val buf = ByteArray(16 * 1024)
+                while (out.size() < limit) {
+                    val n = input.read(buf, 0, minOf(buf.size, limit - out.size()))
+                    if (n < 0) break
+                    out.write(buf, 0, n)
+                }
+            }
+            return String(out.toByteArray(), charset)
+        } finally {
+            c.disconnect()
+        }
     }
 
     fun open(url: String, method: String): HttpURLConnection =
